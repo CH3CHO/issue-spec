@@ -1,0 +1,3 @@
+/issue-spec
+*.test
+coverage.out
