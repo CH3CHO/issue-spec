@@ -27,6 +27,7 @@ issue-spec comment list --repo owner/repo --issue 1 --json
 issue-spec question create --repo owner/repo --issue 1 --id QUESTION-001 --blocking --question "What must be decided?"
 issue-spec question resolve --repo owner/repo --issue 1 --id QUESTION-001 --resolution-file resolution.md
 issue-spec pr rationale --repo owner/repo --pr 4 --path internal/foo.go --line 42 --process PROCESS-001 --spec SPEC-001 --spec-url https://github.com/owner/repo/issues/1#issuecomment-1 --body "Why this line changes."
+issue-spec pr link-process --repo owner/repo --issue 3 --process PROCESS-001 --pr 4
 issue-spec archive durable-spec --repo owner/repo --proposal 1 --capability issue-spec-cli
 issue-spec link --repo owner/repo --from SPEC-001 --from-issue 1 --to TASK-001 --to-issue 2
 issue-spec status --repo owner/repo --proposal 1 --design 2 --implement 3

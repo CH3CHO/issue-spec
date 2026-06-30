@@ -27,6 +27,7 @@ type finalVerifyReport struct {
 type finalVerifyOptions struct {
 	DurableSpecPath   string
 	PR                int
+	PRURL             string
 	RationaleRequired bool
 	RationaleComments []github.PullRequestReviewComment
 }
@@ -79,7 +80,14 @@ func (a *app) runVerify(ctx context.Context, args []string) int {
 		return 1
 	}
 	var rationaleComments []github.PullRequestReviewComment
+	var prURL string
 	if *prFlag > 0 {
+		pr, err := client.GetPullRequest(ctx, repo, *prFlag)
+		if err != nil {
+			a.errorf("read PR #%d: %v\n", *prFlag, err)
+			return 1
+		}
+		prURL = pr.HTMLURL
 		rationaleComments, err = client.ListPullRequestReviewComments(ctx, repo, *prFlag)
 		if err != nil {
 			a.errorf("read PR #%d review comments: %v\n", *prFlag, err)
@@ -89,6 +97,7 @@ func (a *app) runVerify(ctx context.Context, args []string) int {
 	report, err := buildFinalVerifyReport(artifacts, proposalIssueData.HTMLURL, finalVerifyOptions{
 		DurableSpecPath:   *durableSpec,
 		PR:                *prFlag,
+		PRURL:             prURL,
 		RationaleRequired: *prFlag > 0,
 		RationaleComments: rationaleComments,
 	})
@@ -149,6 +158,9 @@ func buildFinalVerifyReport(artifacts []model.Artifact, proposalURL string, opts
 				activeProcesses = append(activeProcesses, artifact)
 				if opts.RationaleRequired {
 					report.RationaleCoverage[tc.ID] = false
+					if opts.PRURL != "" && !linkValuesContain(tc.Links["PR"], opts.PRURL) {
+						report.Errors = append(report.Errors, fmt.Sprintf("%s must link PR %s", tc.ID, opts.PRURL))
+					}
 				}
 			}
 			if tc.Status != "done" && tc.Status != "superseded" {
@@ -208,6 +220,16 @@ func buildFinalVerifyReport(artifacts []model.Artifact, proposalURL string, opts
 	sort.Strings(report.Warnings)
 	report.OK = len(report.Errors) == 0
 	return report, nil
+}
+
+func linkValuesContain(values []string, want string) bool {
+	want = model.NormalizeURL(want)
+	for _, value := range values {
+		if model.NormalizeURL(value) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func rationaleCoverage(comments []github.PullRequestReviewComment, activeSpecIDs map[string]bool) map[string]bool {

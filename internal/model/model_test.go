@@ -46,6 +46,30 @@ func TestAddRelatedCommentLinkIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestAddPRLinkIsIdempotent(t *testing.T) {
+	body, err := EnsureTypedBody("PROCESS", "PROCESS-001", "## Process\n\nDone.", BodyOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, changed, err := AddPRLink(body, "https://github.com/o/r/pull/4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("first PR link should change body")
+	}
+	updatedAgain, changed, err := AddPRLink(updated, "https://github.com/o/r/pull/4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("second PR link should be idempotent")
+	}
+	if updatedAgain != updated {
+		t.Fatal("idempotent PR update changed body")
+	}
+}
+
 func TestVerifyTraceabilityRequiresBacklinks(t *testing.T) {
 	specBody, _ := EnsureTypedBody("SPEC", "SPEC-001", "## Requirement: X\n\nX MUST work.\n\n### Scenario: ok\n\n- **WHEN** x\n- **THEN** y", BodyOptions{})
 	taskBody, _ := EnsureTypedBody("TASK", "TASK-001", "## Task\n\n- [ ] 1. Test", BodyOptions{})

@@ -21,10 +21,78 @@ func (a *app) runPR(ctx context.Context, args []string) int {
 	switch args[0] {
 	case "rationale":
 		return a.runPRRationale(ctx, args[1:])
+	case "link-process":
+		return a.runPRLinkProcess(ctx, args[1:])
 	default:
 		a.errorf("unknown pr command %q\n", args[0])
 		return 2
 	}
+}
+
+func (a *app) runPRLinkProcess(ctx context.Context, args []string) int {
+	fs := newFlagSet("pr link-process", a.err)
+	repoFlag := fs.String("repo", "", "repository owner/name")
+	host := fs.String("hostname", "github.com", "GitHub hostname")
+	issueFlag := fs.String("issue", "", "issue number or URL containing PROCESS comment")
+	prFlag := fs.Int("pr", 0, "pull request number")
+	processID := fs.String("process", "", "PROCESS id")
+	jsonOut := fs.Bool("json", false, "write JSON output")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	repo, ok := a.validateRepo(*repoFlag)
+	if !ok {
+		return 2
+	}
+	issueNumber, err := parseIssueFlag(*issueFlag, "issue")
+	if err != nil {
+		a.errorf("%v\n", err)
+		return 2
+	}
+	if *prFlag <= 0 {
+		a.errorf("--pr must be a positive pull request number\n")
+		return 2
+	}
+	if strings.TrimSpace(*processID) == "" {
+		a.errorf("--process is required\n")
+		return 2
+	}
+	client, _, err := a.clientFor(ctx, *host)
+	if err != nil {
+		a.errorf("auth required for pr link-process on %s: %v\n", auth.NormalizeHost(*host), err)
+		return 1
+	}
+	pr, err := client.GetPullRequest(ctx, repo, *prFlag)
+	if err != nil {
+		a.errorf("read PR #%d: %v\n", *prFlag, err)
+		return 1
+	}
+	artifact, body, err := findArtifactByID(ctx, client, repo, issueNumber, *processID)
+	if err != nil {
+		a.errorf("%v\n", err)
+		return 1
+	}
+	if artifact.Comment.Type != "PROCESS" {
+		a.errorf("%s is %s, not PROCESS\n", *processID, artifact.Comment.Type)
+		return 1
+	}
+	updatedBody, changed, err := model.AddPRLink(body, pr.HTMLURL)
+	if err != nil {
+		a.errorf("update PROCESS PR link: %v\n", err)
+		return 1
+	}
+	if changed {
+		if _, err := client.UpdateComment(ctx, repo, artifact.CommentID, updatedBody); err != nil {
+			a.errorf("patch %s: %v\n", *processID, err)
+			return 1
+		}
+	}
+	result := map[string]any{"ok": true, "changed": changed, "process": *processID, "issue": issueNumber, "pr": *prFlag, "pr_url": pr.HTMLURL}
+	if *jsonOut {
+		return a.outputJSON(result)
+	}
+	fmt.Fprintf(a.out, "linked %s to PR %s\n", *processID, pr.HTMLURL)
+	return 0
 }
 
 func (a *app) runPRRationale(ctx context.Context, args []string) int {

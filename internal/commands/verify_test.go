@@ -78,6 +78,7 @@ func TestBuildFinalVerifyReportChecksRationaleCoverageWhenPRProvided(t *testing.
 	linkArtifacts(t, &task, &process)
 	report, err := buildFinalVerifyReport([]model.Artifact{spec, task, process, review, verify}, "https://github.com/o/r/issues/1", finalVerifyOptions{
 		PR:                7,
+		PRURL:             "https://github.com/o/r/pull/7",
 		RationaleRequired: true,
 	})
 	if err != nil {
@@ -90,8 +91,30 @@ func TestBuildFinalVerifyReportChecksRationaleCoverageWhenPRProvided(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	processWithPR := process
+	processBody, changed, err := model.AddPRLink(processWithPR.Comment.Body, "https://github.com/o/r/pull/7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("expected PR link to change process body")
+	}
+	processWithPR.Comment = model.ParseTypedComment(processBody)
 	report, err = buildFinalVerifyReport([]model.Artifact{spec, task, process, review, verify}, "https://github.com/o/r/issues/1", finalVerifyOptions{
 		PR:                7,
+		PRURL:             "https://github.com/o/r/pull/7",
+		RationaleRequired: true,
+		RationaleComments: []github.PullRequestReviewComment{{Body: body}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.OK {
+		t.Fatal("missing PROCESS PR link should fail even when rationale exists")
+	}
+	report, err = buildFinalVerifyReport([]model.Artifact{spec, task, processWithPR, review, verify}, "https://github.com/o/r/issues/1", finalVerifyOptions{
+		PR:                7,
+		PRURL:             "https://github.com/o/r/pull/7",
 		RationaleRequired: true,
 		RationaleComments: []github.PullRequestReviewComment{{Body: body}},
 	})

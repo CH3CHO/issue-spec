@@ -73,6 +73,7 @@ Usage:
   issue-spec question create --repo owner/repo --issue N --id QUESTION-001 --question "..."
   issue-spec question resolve --repo owner/repo --issue N --id QUESTION-001 --resolution-file file.md
   issue-spec pr rationale --repo owner/repo --pr N --path file.go --line 42 --process PROCESS-001 --spec SPEC-001 --spec-url URL --body "why"
+  issue-spec pr link-process --repo owner/repo --issue N --process PROCESS-001 --pr N
   issue-spec archive durable-spec --repo owner/repo --proposal N --capability my-capability
   issue-spec link --repo owner/repo --from SPEC-001 --from-issue N --to TASK-001 --to-issue M
   issue-spec status --repo owner/repo --proposal N [--design N] [--implement N]
