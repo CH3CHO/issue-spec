@@ -79,6 +79,14 @@ type PullRequest struct {
 	} `json:"base"`
 }
 
+type CreatePullRequestOptions struct {
+	Title string
+	Head  string
+	Base  string
+	Body  string
+	Draft bool
+}
+
 type PullRequestFile struct {
 	Filename string `json:"filename"`
 	Patch    string `json:"patch"`
@@ -222,6 +230,18 @@ func (c *Client) CreateLabel(ctx context.Context, repo, name, color, description
 func (c *Client) GetPullRequest(ctx context.Context, repo string, prNumber int) (PullRequest, error) {
 	var pr PullRequest
 	err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d", repo, prNumber), nil, &pr)
+	return pr, err
+}
+
+func (c *Client) CreatePullRequest(ctx context.Context, repo string, opts CreatePullRequestOptions) (PullRequest, error) {
+	var pr PullRequest
+	err := c.doJSON(ctx, http.MethodPost, "/repos/"+repo+"/pulls", map[string]any{
+		"title": opts.Title,
+		"head":  opts.Head,
+		"base":  opts.Base,
+		"body":  opts.Body,
+		"draft": opts.Draft,
+	}, &pr)
 	return pr, err
 }
 

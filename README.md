@@ -30,6 +30,7 @@ issue-spec pr rationale --repo owner/repo --pr 4 --path internal/foo.go --line 4
 issue-spec pr link-process --repo owner/repo --issue 3 --process PROCESS-001 --pr 4
 issue-spec review sync --repo owner/repo --pr 4 --implement 3 --id REVIEW-001
 issue-spec archive durable-spec --repo owner/repo --proposal 1 --capability issue-spec-cli
+issue-spec archive durable-spec --repo owner/repo --proposal 1 --capability issue-spec-cli --create-pr --branch issue-spec/durable-spec-issue-spec-cli
 issue-spec link --repo owner/repo --from SPEC-001 --from-issue 1 --to TASK-001 --to-issue 2
 issue-spec status --repo owner/repo --proposal 1 --design 2 --implement 3
 issue-spec verify --repo owner/repo --proposal 1 --design 2 --implement 3 --pr 4 --durable-spec openspec/specs/issue-spec-cli/spec.md
