@@ -193,6 +193,52 @@ func TestBuildFinalVerifyReportBlocksOpenP0P1Findings(t *testing.T) {
 	}
 }
 
+func TestBuildFinalVerifyReportBlocksFailedAndPendingChecks(t *testing.T) {
+	spec := typedArtifact(t, 1, "SPEC", "SPEC-001", "confirmed", "## Requirement: X\n\nX MUST work.\n\n### Scenario: ok\n\n- **WHEN** x\n- **THEN** y")
+	spec.URL = "https://github.com/o/r/issues/1#issuecomment-1"
+	task := typedArtifact(t, 2, "TASK", "TASK-001", "done", "## Task\n\n- [x] 1. work")
+	task.URL = "https://github.com/o/r/issues/2#issuecomment-2"
+	process := typedArtifact(t, 3, "PROCESS", "PROCESS-001", "done", "## Process\n\ndone")
+	process.URL = "https://github.com/o/r/issues/3#issuecomment-3"
+	review := typedArtifact(t, 3, "REVIEW", "REVIEW-001", "done", "## Review\n\nnone")
+	verify := typedArtifact(t, 3, "VERIFY", "VERIFY-001", "done", "## Requirement / Scenario Coverage\n\nSPEC-001 covered.")
+	linkArtifacts(t, &spec, &task)
+	linkArtifacts(t, &task, &process)
+	processBody, changed, err := model.AddPRLink(process.Comment.Body, "https://github.com/o/r/pull/7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("expected PR link to change process body")
+	}
+	process.Comment = model.ParseTypedComment(processBody)
+	rationale, err := model.RenderRationaleBody("Worker Agent A", "PROCESS-001", "SPEC-001", spec.URL, "Explain why.", "internal/foo.go", 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := buildFinalVerifyReport([]model.Artifact{spec, task, process, review, verify}, "https://github.com/o/r/issues/1", finalVerifyOptions{
+		PR:                7,
+		PRURL:             "https://github.com/o/r/pull/7",
+		RationaleRequired: true,
+		RationaleComments: []github.PullRequestReviewComment{{ID: 1, Body: rationale}},
+		PRStatus: github.CombinedStatus{Statuses: []github.Status{
+			{Context: "ci/test", State: "failure"},
+		}},
+		PRCheckRuns: []github.CheckRun{
+			{Name: "build", Status: "queued"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.OK {
+		t.Fatal("failed and pending checks should fail final verify")
+	}
+	if len(report.FailedChecks) != 1 || len(report.PendingChecks) != 1 {
+		t.Fatalf("unexpected check blockers: failed=%+v pending=%+v", report.FailedChecks, report.PendingChecks)
+	}
+}
+
 func linkArtifacts(t *testing.T, from, to *model.Artifact) {
 	t.Helper()
 	fromBody, changed, err := model.AddRelatedCommentLink(from.Comment.Body, to.URL)

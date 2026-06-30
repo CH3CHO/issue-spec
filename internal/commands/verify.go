@@ -20,6 +20,8 @@ type finalVerifyReport struct {
 	SpecCoverage          map[string]bool    `json:"spec_coverage"`
 	RationaleCoverage     map[string]bool    `json:"rationale_coverage,omitempty"`
 	ReviewFindingBlockers []reviewFinding    `json:"review_finding_blockers,omitempty"`
+	FailedChecks          []reviewCheck      `json:"failed_checks,omitempty"`
+	PendingChecks         []reviewCheck      `json:"pending_checks,omitempty"`
 	PR                    int                `json:"pr,omitempty"`
 	DurableSpecPath       string             `json:"durable_spec_path,omitempty"`
 	DurableSpecCheck      map[string]bool    `json:"durable_spec_check,omitempty"`
@@ -31,6 +33,8 @@ type finalVerifyOptions struct {
 	PRURL             string
 	RationaleRequired bool
 	RationaleComments []github.PullRequestReviewComment
+	PRStatus          github.CombinedStatus
+	PRCheckRuns       []github.CheckRun
 }
 
 func (a *app) runVerify(ctx context.Context, args []string) int {
@@ -81,6 +85,8 @@ func (a *app) runVerify(ctx context.Context, args []string) int {
 		return 1
 	}
 	var rationaleComments []github.PullRequestReviewComment
+	var prStatus github.CombinedStatus
+	var prCheckRuns []github.CheckRun
 	var prURL string
 	if *prFlag > 0 {
 		pr, err := client.GetPullRequest(ctx, repo, *prFlag)
@@ -94,6 +100,16 @@ func (a *app) runVerify(ctx context.Context, args []string) int {
 			a.errorf("read PR #%d review comments: %v\n", *prFlag, err)
 			return 1
 		}
+		prStatus, err = client.GetCombinedStatus(ctx, repo, pr.Head.SHA)
+		if err != nil {
+			a.errorf("read PR #%d status contexts: %v\n", *prFlag, err)
+			return 1
+		}
+		prCheckRuns, err = client.ListCheckRuns(ctx, repo, pr.Head.SHA)
+		if err != nil {
+			a.errorf("read PR #%d check runs: %v\n", *prFlag, err)
+			return 1
+		}
 	}
 	report, err := buildFinalVerifyReport(artifacts, proposalIssueData.HTMLURL, finalVerifyOptions{
 		DurableSpecPath:   *durableSpec,
@@ -101,6 +117,8 @@ func (a *app) runVerify(ctx context.Context, args []string) int {
 		PRURL:             prURL,
 		RationaleRequired: *prFlag > 0,
 		RationaleComments: rationaleComments,
+		PRStatus:          prStatus,
+		PRCheckRuns:       prCheckRuns,
 	})
 	if err != nil {
 		a.errorf("verify: %v\n", err)
@@ -200,10 +218,18 @@ func buildFinalVerifyReport(artifacts []model.Artifact, proposalURL string, opts
 				report.Errors = append(report.Errors, fmt.Sprintf("%s has no PR rationale comment linked to an active SPEC", process.Comment.ID))
 			}
 		}
-		reviewReport := buildReviewSyncReport(github.PullRequest{Number: opts.PR, HTMLURL: opts.PRURL}, opts.RationaleComments, nil, github.CombinedStatus{}, nil)
+		reviewReport := buildReviewSyncReport(github.PullRequest{Number: opts.PR, HTMLURL: opts.PRURL}, opts.RationaleComments, nil, opts.PRStatus, opts.PRCheckRuns)
 		report.ReviewFindingBlockers = reviewReport.BlockingFindings
 		for _, finding := range report.ReviewFindingBlockers {
 			report.Errors = append(report.Errors, fmt.Sprintf("open %s review finding %s on %s:%d", finding.Severity, finding.ID, finding.Path, finding.Line))
+		}
+		report.FailedChecks = reviewReport.FailedChecks
+		report.PendingChecks = reviewReport.PendingChecks
+		for _, check := range report.FailedChecks {
+			report.Errors = append(report.Errors, fmt.Sprintf("PR check %s failed state=%s conclusion=%s", check.Name, check.State, check.Conclusion))
+		}
+		for _, check := range report.PendingChecks {
+			report.Errors = append(report.Errors, fmt.Sprintf("PR check %s is pending state=%s conclusion=%s", check.Name, check.State, check.Conclusion))
 		}
 	}
 	if !opts.RationaleRequired {
