@@ -293,9 +293,9 @@ func (c *Client) CreatePullRequestReviewComment(ctx context.Context, repo string
 	return comment, err
 }
 
-func (c *Client) ReplyPullRequestReviewComment(ctx context.Context, repo string, commentID int64, body string) (PullRequestReviewComment, error) {
+func (c *Client) ReplyPullRequestReviewComment(ctx context.Context, repo string, prNumber int, commentID int64, body string) (PullRequestReviewComment, error) {
 	var comment PullRequestReviewComment
-	err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/pulls/comments/%d/replies", repo, commentID), map[string]string{
+	err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/pulls/%d/comments/%d/replies", repo, prNumber, commentID), map[string]string{
 		"body": body,
 	}, &comment)
 	return comment, err

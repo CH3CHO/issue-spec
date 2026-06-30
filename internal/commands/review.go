@@ -335,7 +335,7 @@ func createReviewFinding(ctx context.Context, client interface {
 
 func replyReviewFinding(ctx context.Context, client interface {
 	ListPullRequestReviewComments(context.Context, string, int) ([]github.PullRequestReviewComment, error)
-	ReplyPullRequestReviewComment(context.Context, string, int64, string) (github.PullRequestReviewComment, error)
+	ReplyPullRequestReviewComment(context.Context, string, int, int64, string) (github.PullRequestReviewComment, error)
 }, repo string, prNumber int, parentCommentID int64, findingID, processID, status, agent, replyBody string) (reviewReplyResult, error) {
 	findingID = strings.TrimSpace(findingID)
 	processID = strings.TrimSpace(processID)
@@ -378,7 +378,7 @@ func replyReviewFinding(ctx context.Context, client interface {
 	if err != nil {
 		return reviewReplyResult{}, err
 	}
-	comment, err := client.ReplyPullRequestReviewComment(ctx, repo, parentCommentID, body)
+	comment, err := client.ReplyPullRequestReviewComment(ctx, repo, prNumber, parentCommentID, body)
 	if err != nil {
 		return reviewReplyResult{}, err
 	}

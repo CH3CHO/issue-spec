@@ -183,7 +183,10 @@ func (f *fakeReviewClient) CreatePullRequestReviewComment(_ context.Context, _ s
 	return comment, nil
 }
 
-func (f *fakeReviewClient) ReplyPullRequestReviewComment(_ context.Context, _ string, parentCommentID int64, body string) (github.PullRequestReviewComment, error) {
+func (f *fakeReviewClient) ReplyPullRequestReviewComment(_ context.Context, _ string, prNumber int, parentCommentID int64, body string) (github.PullRequestReviewComment, error) {
+	if prNumber != 7 {
+		panic("invalid pull request number")
+	}
 	marker, ok, err := model.FindFindingReplyMarker(body)
 	if err != nil || !ok || marker.Finding != "FINDING-001" || marker.Status != "resolved" {
 		panic("missing finding reply marker")
