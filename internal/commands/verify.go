@@ -13,15 +13,16 @@ import (
 )
 
 type finalVerifyReport struct {
-	OK                bool               `json:"ok"`
-	Traceability      model.VerifyReport `json:"traceability"`
-	Errors            []string           `json:"errors"`
-	Warnings          []string           `json:"warnings,omitempty"`
-	SpecCoverage      map[string]bool    `json:"spec_coverage"`
-	RationaleCoverage map[string]bool    `json:"rationale_coverage,omitempty"`
-	PR                int                `json:"pr,omitempty"`
-	DurableSpecPath   string             `json:"durable_spec_path,omitempty"`
-	DurableSpecCheck  map[string]bool    `json:"durable_spec_check,omitempty"`
+	OK                    bool               `json:"ok"`
+	Traceability          model.VerifyReport `json:"traceability"`
+	Errors                []string           `json:"errors"`
+	Warnings              []string           `json:"warnings,omitempty"`
+	SpecCoverage          map[string]bool    `json:"spec_coverage"`
+	RationaleCoverage     map[string]bool    `json:"rationale_coverage,omitempty"`
+	ReviewFindingBlockers []reviewFinding    `json:"review_finding_blockers,omitempty"`
+	PR                    int                `json:"pr,omitempty"`
+	DurableSpecPath       string             `json:"durable_spec_path,omitempty"`
+	DurableSpecCheck      map[string]bool    `json:"durable_spec_check,omitempty"`
 }
 
 type finalVerifyOptions struct {
@@ -198,6 +199,11 @@ func buildFinalVerifyReport(artifacts []model.Artifact, proposalURL string, opts
 			} else {
 				report.Errors = append(report.Errors, fmt.Sprintf("%s has no PR rationale comment linked to an active SPEC", process.Comment.ID))
 			}
+		}
+		reviewReport := buildReviewSyncReport(github.PullRequest{Number: opts.PR, HTMLURL: opts.PRURL}, opts.RationaleComments, nil, github.CombinedStatus{}, nil)
+		report.ReviewFindingBlockers = reviewReport.BlockingFindings
+		for _, finding := range report.ReviewFindingBlockers {
+			report.Errors = append(report.Errors, fmt.Sprintf("open %s review finding %s on %s:%d", finding.Severity, finding.ID, finding.Path, finding.Line))
 		}
 	}
 	if !opts.RationaleRequired {

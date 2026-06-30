@@ -93,15 +93,16 @@ type PullRequestFile struct {
 }
 
 type PullRequestReviewComment struct {
-	ID       int64  `json:"id"`
-	HTMLURL  string `json:"html_url"`
-	URL      string `json:"url"`
-	Body     string `json:"body"`
-	Path     string `json:"path"`
-	Line     int    `json:"line,omitempty"`
-	Position int    `json:"position,omitempty"`
-	CommitID string `json:"commit_id"`
-	User     *User  `json:"user,omitempty"`
+	ID          int64  `json:"id"`
+	HTMLURL     string `json:"html_url"`
+	URL         string `json:"url"`
+	Body        string `json:"body"`
+	Path        string `json:"path"`
+	Line        int    `json:"line,omitempty"`
+	Position    int    `json:"position,omitempty"`
+	CommitID    string `json:"commit_id"`
+	InReplyToID int64  `json:"in_reply_to_id,omitempty"`
+	User        *User  `json:"user,omitempty"`
 }
 
 type CombinedStatus struct {
@@ -288,6 +289,14 @@ func (c *Client) CreatePullRequestReviewComment(ctx context.Context, repo string
 		"path":      path,
 		"line":      line,
 		"side":      side,
+	}, &comment)
+	return comment, err
+}
+
+func (c *Client) ReplyPullRequestReviewComment(ctx context.Context, repo string, commentID int64, body string) (PullRequestReviewComment, error) {
+	var comment PullRequestReviewComment
+	err := c.doJSON(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/pulls/comments/%d/replies", repo, commentID), map[string]string{
+		"body": body,
 	}, &comment)
 	return comment, err
 }

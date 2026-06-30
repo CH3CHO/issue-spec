@@ -28,6 +28,8 @@ issue-spec question create --repo owner/repo --issue 1 --id QUESTION-001 --block
 issue-spec question resolve --repo owner/repo --issue 1 --id QUESTION-001 --resolution-file resolution.md
 issue-spec pr rationale --repo owner/repo --pr 4 --path internal/foo.go --line 42 --process PROCESS-001 --spec SPEC-001 --spec-url https://github.com/owner/repo/issues/1#issuecomment-1 --body "Why this line changes."
 issue-spec pr link-process --repo owner/repo --issue 3 --process PROCESS-001 --pr 4
+issue-spec review finding --repo owner/repo --pr 4 --path internal/foo.go --line 42 --id FINDING-001 --severity P1 --process PROCESS-001 --spec SPEC-001 --spec-url https://github.com/owner/repo/issues/1#issuecomment-1 --body "What must be fixed."
+issue-spec review reply --repo owner/repo --pr 4 --comment-id 123456 --finding FINDING-001 --process PROCESS-001 --status resolved --body "Fixed in the latest patch."
 issue-spec review sync --repo owner/repo --pr 4 --implement 3 --id REVIEW-001
 issue-spec archive durable-spec --repo owner/repo --proposal 1 --capability issue-spec-cli
 issue-spec archive durable-spec --repo owner/repo --proposal 1 --capability issue-spec-cli --create-pr --branch issue-spec/durable-spec-issue-spec-cli
