@@ -2,6 +2,55 @@
 
 `issue-spec` is a GitHub issue-backed OpenSpec-style workflow CLI. Active change artifacts live in proposal/design/implement issues and typed comments; durable specs remain repository files after merge/archive.
 
+## Why issue-spec
+
+`issue-spec` keeps the working habits that make OpenSpec useful for agents:
+
+- phase-oriented change work, from proposal to specs, design, tasks, review, verify, and archive
+- reusable agent skills and slash-command style workflows
+- explicit gates before implementation, review, and archive
+- durable specs after a change is merged
+
+It changes where active change specs live and adds GitHub-native coordination on top.
+
+### Active specs stay out of the code repository
+
+OpenSpec active changes are usually repository files under `openspec/changes/<change>/...`. That works well for local spec-driven development, but it also means draft, superseded, or abandoned change specs can be found by `grep`, `rg`, code search, or an agent reading the repository later.
+
+`issue-spec` keeps active change artifacts in GitHub issues instead:
+
+- proposal issue: proposal body plus `SPEC` and `QUESTION` comments
+- design issue: design body plus `TASK` and `QUESTION` comments
+- implement issue: implementation DAG plus `PROCESS`, `REVIEW`, and `VERIFY` comments
+
+This keeps the repository focused on current code and durable specs. Draft change history remains reviewable in GitHub, with comment threads, edits, links, and human approval points. Human-in-the-loop decisions are first-class: blocking questions, accepted assumptions, review findings, and verification evidence are all issue or PR comments instead of unreviewed local files.
+
+### Native multi-agent DAG coordination
+
+`issue-spec` treats implementation as a native multi-agent workflow. Work is split into small `TASK` and `PROCESS` units, linked back to the relevant `SPEC` comments and PR work.
+
+The goal is to keep each model invocation inside its effective reasoning zone: narrow scope, clear context, explicit ownership, focused tests, and small review surfaces. The implement issue records the DAG:
+
+- worker owner and review owner
+- branch/worktree or PR node
+- dependencies
+- owned files and scope
+- linked TASK/SPEC comments
+- status, blockers, and verification evidence
+
+The CLI does not act as a scheduler that launches agents automatically. It provides the shared state, links, and gates that let a coordinator safely split work across multiple agents without losing traceability.
+
+### PR-native review flow
+
+OpenSpec already encourages review and verification as workflow phases. `issue-spec` connects that discipline directly to GitHub PR review comments:
+
+- `pr rationale` records why a worker changed a specific PR diff line and links it to a `SPEC` and `PROCESS`
+- `review finding` creates actionable PR line findings with severity, owner process, and linked spec context
+- `review reply` lets the worker close the original review thread after a fix
+- `review sync` summarizes rationale comments, findings, resolved findings, PR checks, and review status back into `REVIEW` comments
+
+This makes review easier for humans: findings are attached to the exact code line, while the issue comments preserve the workflow state and assignment context. Final verification checks unresolved blocking questions, traceability, P0/P1 findings, PR rationale coverage, PR checks, and durable spec coverage before archive.
+
 ## Build
 
 ```bash
