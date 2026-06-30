@@ -35,9 +35,8 @@ type workflowGenerationResult struct {
 }
 
 var workflowTools = []workflowTool{
-	{ID: "codex", SkillsDir: ".codex"},
+	{ID: "codex", SkillsDir: ".agents"},
 	{ID: "claude", SkillsDir: ".claude"},
-	{ID: "agents", SkillsDir: ".agents"},
 }
 
 func writeWorkflowArtifacts(root, repo, toolsArg, delivery string) (workflowGenerationResult, error) {

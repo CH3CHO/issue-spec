@@ -17,7 +17,7 @@ func (a *app) runInit(ctx context.Context, args []string) int {
 	repoFlag := fs.String("repo", "", "repository owner/name")
 	host := fs.String("hostname", "github.com", "GitHub hostname")
 	createLabels := fs.Bool("create-labels", false, "create issue-spec labels")
-	tools := fs.String("tools", "", "generate workflow artifacts for AI tools: all, none, or comma-separated codex,claude,agents")
+	tools := fs.String("tools", "", "generate workflow artifacts for AI tools: all, none, or comma-separated codex,claude")
 	delivery := fs.String("delivery", "both", "workflow artifact delivery: both, skills, or commands")
 	jsonOut := fs.Bool("json", false, "write JSON output")
 	if err := fs.Parse(args); err != nil {
