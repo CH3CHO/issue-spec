@@ -71,12 +71,14 @@ Use this skill for issue-native OpenSpec work. Active change artifacts live in G
 
 1. Run issue-spec auth status --json and confirm the active token source.
 2. Run issue-spec status --repo {{repo}} --proposal <issue> --design <issue> --implement <issue> --json when issues already exist.
-3. For new work, create proposal, design, and implement issues with issue-spec issue create.
-4. Store requirements, tasks, process ownership, review, and verify evidence as typed comments.
+3. For new work, create proposal, design, and implement issues with issue-spec issue create and pass --body-file with concrete markdown content.
+4. When an issue body changes, update it in place with issue-spec issue update --body-file and include --summary for the human-readable audit trail.
+5. Store requirements, tasks, process ownership, review, and verify evidence as typed comments.
 
 ## Rules
 
 - Create SPEC comments before design; each SPEC must be testable and include WHEN/THEN scenarios.
+- Do not leave active proposal/design/implement issue bodies as TBD placeholders.
 - Resolve blocking QUESTION comments before design/tasks, or explicitly record accepted assumptions.
 - Link SPEC <-> TASK and TASK <-> PROCESS with issue-spec link.
 - Link every PROCESS to the implementation PR with issue-spec pr link-process.
@@ -99,17 +101,24 @@ Use when the user asks for /issue-spec:propose, issue-spec propose, creating a c
 
 1. Create the proposal issue:
 
-       issue-spec issue create proposal --repo {{repo}} --change <change-name>
+       issue-spec issue create proposal --repo {{repo}} --change <change-name> --body-file <proposal.md>
 
-2. Add SPEC comments with issue-spec comment upsert --type SPEC. SPEC comments must use MUST/SHALL and WHEN/THEN scenarios.
-3. Add QUESTION comments for unresolved behavior with issue-spec question create and resolve blocking questions before design.
-4. Create the design issue after SPEC/QUESTION convergence:
+2. If the proposal body needs revision after discussion, update it in place:
 
-       issue-spec issue create design --repo {{repo}} --change <change-name> --proposal <proposal-issue-or-url>
+       issue-spec issue update --repo {{repo}} --issue <proposal-issue> --body-file <proposal.md> --summary "<what changed>"
 
-5. Add TASK comments with issue-spec comment upsert --type TASK and link every TASK to covered SPEC comments with issue-spec link.
-6. Create the implement issue once tasks are ready.
-7. Run issue-spec verify-links and fix missing backlinks before implementation.
+3. Add SPEC comments with issue-spec comment upsert --type SPEC. SPEC comments must use MUST/SHALL and WHEN/THEN scenarios.
+4. Add QUESTION comments for unresolved behavior with issue-spec question create and resolve blocking questions before design.
+5. Create the design issue after SPEC/QUESTION convergence:
+
+       issue-spec issue create design --repo {{repo}} --change <change-name> --proposal <proposal-issue-or-url> --body-file <design.md>
+
+6. Add TASK comments with issue-spec comment upsert --type TASK and link every TASK to covered SPEC comments with issue-spec link.
+7. Create the implement issue once tasks are ready:
+
+       issue-spec issue create implement --repo {{repo}} --change <change-name> --proposal <proposal-issue-or-url> --design <design-issue-or-url> --body-file <implement.md>
+
+8. Run issue-spec verify-links and fix missing backlinks before implementation.
 `,
 		},
 		{

@@ -98,6 +98,8 @@ OpenSpec active changes are usually repository files under `openspec/changes/<ch
 - design issue: design body plus `TASK` and `QUESTION` comments
 - implement issue: implementation DAG plus `PROCESS`, `REVIEW`, and `VERIFY` comments
 
+Issue bodies are the current editable proposal/design/implementation artifacts, not placeholder shells. Use `--body-file` when creating them and `issue-spec issue update --body-file --summary` when discussion changes the body, so humans can review the latest content and the audit trail in the same GitHub issue.
+
 This keeps the repository focused on current code and durable specs. Draft change history remains reviewable in GitHub, with comment threads, edits, links, and human approval points.
 
 Human-in-the-loop decisions are first-class:
@@ -185,9 +187,10 @@ issue-spec auth token --plain
 issue-spec init --repo owner/repo --create-labels
 issue-spec init --repo owner/repo --tools codex,claude --delivery both
 
-issue-spec issue create proposal --repo owner/repo --change my-change
-issue-spec issue create design --repo owner/repo --change my-change --proposal 1
-issue-spec issue create implement --repo owner/repo --change my-change --design 2
+issue-spec issue create proposal --repo owner/repo --change my-change --body-file proposal.md
+issue-spec issue create design --repo owner/repo --change my-change --proposal 1 --body-file design.md
+issue-spec issue create implement --repo owner/repo --change my-change --proposal 1 --design 2 --body-file implement.md
+issue-spec issue update --repo owner/repo --issue 1 --body-file proposal.md --summary "Clarified goals after review."
 
 issue-spec comment upsert --repo owner/repo --issue 1 --type SPEC --id SPEC-001 --body-file spec.md
 issue-spec comment list --repo owner/repo --issue 1 --json
