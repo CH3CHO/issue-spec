@@ -96,6 +96,34 @@ type PullRequestReviewComment struct {
 	User     *User  `json:"user,omitempty"`
 }
 
+type CombinedStatus struct {
+	State    string   `json:"state"`
+	Statuses []Status `json:"statuses"`
+}
+
+type Status struct {
+	Context     string `json:"context"`
+	State       string `json:"state"`
+	Description string `json:"description"`
+	TargetURL   string `json:"target_url"`
+}
+
+type CheckRunsResponse struct {
+	TotalCount int        `json:"total_count"`
+	CheckRuns  []CheckRun `json:"check_runs"`
+}
+
+type CheckRun struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+	Conclusion  string `json:"conclusion"`
+	DetailsURL  string `json:"details_url"`
+	HTMLURL     string `json:"html_url"`
+	StartedAt   string `json:"started_at"`
+	CompletedAt string `json:"completed_at"`
+}
+
 func NewClient(host, token string) *Client {
 	host = normalizeHost(host)
 	return &Client{
@@ -242,6 +270,28 @@ func (c *Client) CreatePullRequestReviewComment(ctx context.Context, repo string
 		"side":      side,
 	}, &comment)
 	return comment, err
+}
+
+func (c *Client) GetCombinedStatus(ctx context.Context, repo, ref string) (CombinedStatus, error) {
+	var status CombinedStatus
+	err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/commits/%s/status", repo, url.PathEscape(ref)), nil, &status)
+	return status, err
+}
+
+func (c *Client) ListCheckRuns(ctx context.Context, repo, ref string) ([]CheckRun, error) {
+	var all []CheckRun
+	for page := 1; ; page++ {
+		var response CheckRunsResponse
+		path := fmt.Sprintf("/repos/%s/commits/%s/check-runs?per_page=100&page=%d", repo, url.PathEscape(ref), page)
+		if err := c.doJSON(ctx, http.MethodGet, path, nil, &response); err != nil {
+			return nil, err
+		}
+		all = append(all, response.CheckRuns...)
+		if len(response.CheckRuns) < 100 {
+			break
+		}
+	}
+	return all, nil
 }
 
 func (c *Client) doJSON(ctx context.Context, method, path string, in any, out any) error {

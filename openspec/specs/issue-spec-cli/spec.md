@@ -77,3 +77,19 @@ Source SPEC comment: https://github.com/higress-group/issue-spec/issues/1#issuec
 - **THEN** the CLI MUST fail final verify unless every active `PROCESS` comment has at least one rationale review comment linked to an active `SPEC` comment.
 
 Source SPEC comment: https://github.com/higress-group/issue-spec/issues/1#issuecomment-4843179415
+
+### Requirement: PR review sync
+
+`issue-spec review sync` MUST fetch PR review comments, PR issue comments, review rationale comments, and check results, then upsert a structured `REVIEW` comment on the implement issue.
+
+#### Scenario: Sync clean PR review state
+
+- **WHEN** Coordinator runs `issue-spec review sync --pr <number> --implement <issue> --id <REVIEW-ID>` on a PR with only rationale line comments and passing checks
+- **THEN** the CLI MUST upsert a `REVIEW` comment with `Status: done`, rationale counts, check evidence, and no actionable findings.
+
+#### Scenario: Sync blocking PR review state
+
+- **WHEN** PR line comments without rationale markers, failed checks, or pending checks are present
+- **THEN** the CLI MUST mark the synced `REVIEW` comment as `blocked` and report actionable findings or check blockers.
+
+Source SPEC comment: https://github.com/higress-group/issue-spec/issues/1#issuecomment-4843317232

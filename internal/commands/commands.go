@@ -42,6 +42,8 @@ func Execute(args []string, in io.Reader, out io.Writer, errOut io.Writer) int {
 		return a.runComment(ctx, args[1:])
 	case "question":
 		return a.runQuestion(ctx, args[1:])
+	case "review":
+		return a.runReview(ctx, args[1:])
 	case "pr":
 		return a.runPR(ctx, args[1:])
 	case "archive":
@@ -74,6 +76,7 @@ Usage:
   issue-spec question resolve --repo owner/repo --issue N --id QUESTION-001 --resolution-file file.md
   issue-spec pr rationale --repo owner/repo --pr N --path file.go --line 42 --process PROCESS-001 --spec SPEC-001 --spec-url URL --body "why"
   issue-spec pr link-process --repo owner/repo --issue N --process PROCESS-001 --pr N
+  issue-spec review sync --repo owner/repo --pr N --implement N --id REVIEW-001
   issue-spec archive durable-spec --repo owner/repo --proposal N --capability my-capability
   issue-spec link --repo owner/repo --from SPEC-001 --from-issue N --to TASK-001 --to-issue M
   issue-spec status --repo owner/repo --proposal N [--design N] [--implement N]
