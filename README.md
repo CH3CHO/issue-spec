@@ -18,6 +18,7 @@ issue-spec auth logout
 issue-spec auth token --plain
 
 issue-spec init --repo owner/repo --create-labels
+issue-spec init --repo owner/repo --tools codex,claude,agents --delivery both
 issue-spec issue create proposal --repo owner/repo --change my-change
 issue-spec issue create design --repo owner/repo --change my-change --proposal 1
 issue-spec issue create implement --repo owner/repo --change my-change --design 2
@@ -40,3 +41,18 @@ issue-spec verify-links --repo owner/repo --proposal 1 --design 2 --implement 3
 ```
 
 Token source priority is `ISSUE_SPEC_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, then the issue-spec credential store. The CLI uses GitHub REST directly and does not shell out to standalone `gh`.
+
+## Agent Skills And Slash Commands
+
+`issue-spec init` can generate OpenSpec-style agent workflow artifacts for a project:
+
+```bash
+issue-spec init --repo owner/repo --tools codex,claude,agents --delivery both
+```
+
+- Skills are written to `.codex/skills/issue-spec-*`, `.claude/skills/issue-spec-*`, and `.agents/skills/issue-spec-*`.
+- Claude slash commands are written to `.claude/commands/issue-spec/*.md`, invoked like `/issue-spec:propose`.
+- Codex slash prompts are written to `${CODEX_HOME:-~/.codex}/prompts/issue-spec-*.md`, matching OpenSpec's global Codex prompt behavior.
+- `--delivery skills` writes only skills; `--delivery commands` writes only slash commands. `.agents` has no slash command adapter, so commands are skipped for that tool.
+
+If `--tools` is omitted, init detects existing `.codex`, `.claude`, or `.agents` directories and refreshes those workflows. Use `--tools none` to initialize only `.issue-spec/config.json` and optional labels.

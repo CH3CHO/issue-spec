@@ -68,7 +68,7 @@ func (a *app) printUsage() {
 
 Usage:
   issue-spec auth status|login|logout|token
-  issue-spec init --repo owner/repo [--create-labels]
+  issue-spec init --repo owner/repo [--create-labels] [--tools codex,claude,agents|all|none] [--delivery both|skills|commands]
   issue-spec issue create proposal|design|implement --repo owner/repo --change name
   issue-spec comment upsert --repo owner/repo --issue N --type SPEC --id SPEC-001 --body-file file.md
   issue-spec comment list --repo owner/repo --issue N [--type SPEC] [--json]

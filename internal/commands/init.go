@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/higress-group/issue-spec/internal/auth"
 	"github.com/higress-group/issue-spec/internal/github"
@@ -16,6 +17,8 @@ func (a *app) runInit(ctx context.Context, args []string) int {
 	repoFlag := fs.String("repo", "", "repository owner/name")
 	host := fs.String("hostname", "github.com", "GitHub hostname")
 	createLabels := fs.Bool("create-labels", false, "create issue-spec labels")
+	tools := fs.String("tools", "", "generate workflow artifacts for AI tools: all, none, or comma-separated codex,claude,agents")
+	delivery := fs.String("delivery", "both", "workflow artifact delivery: both, skills, or commands")
 	jsonOut := fs.Bool("json", false, "write JSON output")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -61,7 +64,13 @@ func (a *app) runInit(ctx context.Context, args []string) int {
 		}
 	}
 
-	result := map[string]any{"ok": true, "repo": *repoFlag, "hostname": token.Host, "auth": token, "config": configPath, "labels": labels}
+	workflows, err := writeWorkflowArtifacts(".", *repoFlag, *tools, *delivery)
+	if err != nil {
+		a.errorf("generate workflow artifacts: %v\n", err)
+		return 1
+	}
+
+	result := map[string]any{"ok": true, "repo": *repoFlag, "hostname": token.Host, "auth": token, "config": configPath, "labels": labels, "workflows": workflows}
 	if *jsonOut {
 		return a.outputJSON(result)
 	}
@@ -72,6 +81,19 @@ func (a *app) runInit(ctx context.Context, args []string) int {
 		} else if label.Skipped {
 			fmt.Fprintf(a.out, "label exists: %s\n", label.Name)
 		}
+	}
+	if len(workflows.Tools) > 0 {
+		fmt.Fprintf(a.out, "workflow delivery: %s\n", workflows.Delivery)
+		if len(workflows.SkillFiles) > 0 {
+			fmt.Fprintf(a.out, "generated skills: %d\n", len(workflows.SkillFiles))
+		}
+		if len(workflows.CommandFiles) > 0 {
+			fmt.Fprintf(a.out, "generated commands: %d\n", len(workflows.CommandFiles))
+		}
+		if len(workflows.CommandsSkipped) > 0 {
+			fmt.Fprintf(a.out, "commands skipped for: %s (no adapter)\n", strings.Join(workflows.CommandsSkipped, ", "))
+		}
+		fmt.Fprintln(a.out, "restart your IDE for slash commands to take effect")
 	}
 	return 0
 }
