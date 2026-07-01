@@ -386,7 +386,7 @@ func (c *Client) do(ctx context.Context, method, path string, in any, out any) (
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return resp, &APIError{Method: method, URL: endpoint, StatusCode: resp.StatusCode, Body: string(data)}
+		return resp, &APIError{Method: method, URL: endpoint, StatusCode: resp.StatusCode, Body: redactTokenValue(string(data), c.Token)}
 	}
 	if out == nil || resp.StatusCode == http.StatusNoContent {
 		io.Copy(io.Discard, resp.Body)
@@ -481,6 +481,14 @@ func baseURL(host string) string {
 		return "https://api.github.com"
 	}
 	return "https://" + host + "/api/v3"
+}
+
+func redactTokenValue(value, token string) string {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return value
+	}
+	return strings.ReplaceAll(value, token, "[REDACTED]")
 }
 
 func errorAsAPI(err error, target **APIError) bool {

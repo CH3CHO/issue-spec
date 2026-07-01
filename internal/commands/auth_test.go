@@ -5,6 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -59,6 +63,138 @@ func TestAuthStatusJSONIncludesBackendDiagnosticsWithoutToken(t *testing.T) {
 	}
 	if got.Backend.Name != "rest" || got.Backend.SelectionSource != "auto:token" || got.Backend.TokenSource != "env:ISSUE_SPEC_TOKEN" {
 		t.Fatalf("unexpected backend diagnostics: %+v", got.Backend)
+	}
+}
+
+func TestDefaultAuthStatusAutoSelectsGHWhenProbeSucceeds(t *testing.T) {
+	clearCommandAuthEnv(t)
+	oldGHAuthenticated := ghAuthenticated
+	t.Cleanup(func() { ghAuthenticated = oldGHAuthenticated })
+	var probedHost string
+	ghAuthenticated = func(_ context.Context, host string) error {
+		probedHost = host
+		return nil
+	}
+
+	var out, errOut bytes.Buffer
+	app := newApp(strings.NewReader(""), &out, &errOut)
+	var selected auth.GitHubBackendSelection
+	app.newGitHubBackend = func(_ context.Context, selection auth.GitHubBackendSelection) (github.Backend, error) {
+		selected = selection
+		return fakeGitHubBackend{
+			info: github.BackendInfo{Name: selection.Name, Kind: selection.Kind, Host: selection.Host},
+			user: github.User{Login: "octocat"},
+		}, nil
+	}
+
+	code := app.runAuthStatus(context.Background(), []string{"--hostname", "https://no-token-gh.example.invalid/", "--json"})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr=%q", code, errOut.String())
+	}
+	if probedHost != "no-token-gh.example.invalid" {
+		t.Fatalf("probed host = %q, want normalized gh host", probedHost)
+	}
+	if selected.Name != auth.GitHubBackendNameGH || selected.Kind != auth.GitHubBackendKindCLI || selected.SelectionSource != "auto:gh" {
+		t.Fatalf("selection = %+v, want auto gh", selected)
+	}
+	var got struct {
+		OK      bool                          `json:"ok"`
+		Backend auth.GitHubBackendDiagnostics `json:"backend"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.OK || got.Backend.Name != "gh" || got.Backend.SelectionSource != "auto:gh" {
+		t.Fatalf("unexpected auth status JSON: %+v", got)
+	}
+}
+
+func TestDefaultGHBackendRedactsEnvTokensInAuthStatusErrorPaths(t *testing.T) {
+	clearCommandAuthEnv(t)
+	const issueToken = "issue-spec-env-secret"
+	const ghToken = "gh-env-secret"
+	const githubToken = "github-env-secret"
+	t.Setenv(auth.GitHubBackendEnv, "gh")
+	t.Setenv("ISSUE_SPEC_TOKEN", issueToken)
+	t.Setenv("GH_TOKEN", ghToken)
+	t.Setenv("GITHUB_TOKEN", githubToken)
+	installFakeGH(t, `#!/bin/sh
+printf 'fake gh stderr: %s %s %s\n' "$ISSUE_SPEC_TOKEN" "$GH_TOKEN" "$GITHUB_TOKEN" >&2
+exit 1
+`)
+
+	for _, tt := range []struct {
+		name string
+		args []string
+	}{
+		{name: "json", args: []string{"--json"}},
+		{name: "stderr"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			app := newApp(strings.NewReader(""), &out, &errOut)
+
+			code := app.runAuthStatus(context.Background(), tt.args)
+			if tt.name == "stderr" && code != 1 {
+				t.Fatalf("exit code = %d, want 1, stdout=%q stderr=%q", code, out.String(), errOut.String())
+			}
+			combined := out.String() + errOut.String()
+			for _, secret := range []string{issueToken, ghToken, githubToken} {
+				if strings.Contains(combined, secret) {
+					t.Fatalf("token leaked in %s output: stdout=%q stderr=%q", tt.name, out.String(), errOut.String())
+				}
+			}
+			if !strings.Contains(combined, "[REDACTED]") {
+				t.Fatalf("output missing redaction marker: stdout=%q stderr=%q", out.String(), errOut.String())
+			}
+			if tt.name == "json" {
+				var got struct {
+					OK    bool   `json:"ok"`
+					Error string `json:"error"`
+				}
+				if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+					t.Fatal(err)
+				}
+				if got.OK || !strings.Contains(got.Error, "[REDACTED]") {
+					t.Fatalf("unexpected JSON error: %+v", got)
+				}
+			}
+		})
+	}
+}
+
+func TestAuthStatusJSONRedactsRESTErrorBodyToken(t *testing.T) {
+	clearCommandAuthEnv(t)
+	const secret = "rest-error-body-secret"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer "+secret {
+			t.Errorf("authorization header = %q", got)
+		}
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"message":"proxy echoed Authorization Bearer ` + secret + `"}`))
+	}))
+	defer server.Close()
+	t.Setenv("ISSUE_SPEC_TOKEN", secret)
+	t.Setenv(auth.GitHubBackendAPIURLEnv, server.URL)
+
+	var out, errOut bytes.Buffer
+	code := Execute([]string{"auth", "status", "--json"}, strings.NewReader(""), &out, &errOut)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr=%q", code, errOut.String())
+	}
+	combined := out.String() + errOut.String()
+	if strings.Contains(combined, secret) {
+		t.Fatalf("REST token leaked in auth status output: stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+	var got struct {
+		OK    bool   `json:"ok"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.OK || !strings.Contains(got.Error, "[REDACTED]") {
+		t.Fatalf("unexpected JSON error: %+v", got)
 	}
 }
 
@@ -319,6 +455,26 @@ func TestDefaultGitHubBackendTokenForGHUsesProvider(t *testing.T) {
 	if token != "gh-token" || gotHost != "ghe.example.com" {
 		t.Fatalf("token = %q host = %q", token, gotHost)
 	}
+}
+
+func clearCommandAuthEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv(auth.GitHubBackendEnv, "")
+	t.Setenv(auth.GitHubBackendAPIURLEnv, "")
+	t.Setenv("ISSUE_SPEC_TOKEN", "")
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("ISSUE_SPEC_CONFIG_DIR", t.TempDir())
+}
+
+func installFakeGH(t *testing.T, script string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gh")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func ghSelection(context.Context, string) (auth.GitHubBackendSelection, error) {

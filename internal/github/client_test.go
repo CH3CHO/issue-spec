@@ -99,6 +99,34 @@ func TestClientUpdatesIssue(t *testing.T) {
 	}
 }
 
+func TestClientAPIErrorRedactsTokenInResponseBody(t *testing.T) {
+	const secret = "rest-api-error-secret"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer "+secret {
+			t.Fatalf("authorization header = %q", got)
+		}
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"message":"upstream echoed ` + secret + `"}`))
+	}))
+	defer server.Close()
+
+	client := NewClientWithBaseURL("github.com", server.URL, secret, server.Client())
+	_, _, err := client.GetUser(context.Background())
+	if err == nil {
+		t.Fatal("GetUser succeeded, want API error")
+	}
+	var apiErr *APIError
+	if !errorAsAPI(err, &apiErr) {
+		t.Fatalf("error %T is not APIError: %v", err, err)
+	}
+	if strings.Contains(apiErr.Body, secret) || strings.Contains(err.Error(), secret) {
+		t.Fatalf("API error leaked token: body=%q error=%q", apiErr.Body, err.Error())
+	}
+	if !strings.Contains(apiErr.Body, "[REDACTED]") || !strings.Contains(err.Error(), "[REDACTED]") {
+		t.Fatalf("API error missing redaction marker: body=%q error=%q", apiErr.Body, err.Error())
+	}
+}
+
 func TestParseIssueNumberFromURL(t *testing.T) {
 	n, err := ParseIssueNumber("https://github.com/o/r/issues/123")
 	if err != nil {

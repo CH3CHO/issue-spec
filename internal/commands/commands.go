@@ -72,13 +72,20 @@ func newApp(in io.Reader, out io.Writer, errOut io.Writer) *app {
 		in:                  in,
 		out:                 out,
 		err:                 errOut,
-		selectGitHubBackend: auth.SelectGitHubBackend,
+		selectGitHubBackend: defaultSelectGitHubBackend,
 		newGitHubBackend:    defaultNewGitHubBackend,
 		gitHubBackendToken:  defaultGitHubBackendToken,
 	}
 }
 
+var ghAuthenticated = github.GHAuthenticated
 var ghAuthToken = github.GHAuthToken
+
+func defaultSelectGitHubBackend(ctx context.Context, host string) (auth.GitHubBackendSelection, error) {
+	return auth.SelectGitHubBackendWithOptions(ctx, host, auth.GitHubBackendSelectionOptions{
+		GHAuthenticated: ghAuthenticated,
+	})
+}
 
 func (a *app) printUsage() {
 	fmt.Fprintln(a.out, `issue-spec manages issue-native OpenSpec artifacts.
@@ -133,7 +140,7 @@ func (a *app) selectBackend(ctx context.Context, host string) (auth.GitHubBacken
 	if a.selectGitHubBackend != nil {
 		return a.selectGitHubBackend(ctx, host)
 	}
-	return auth.SelectGitHubBackend(ctx, host)
+	return defaultSelectGitHubBackend(ctx, host)
 }
 
 func (a *app) backendForSelection(ctx context.Context, selection auth.GitHubBackendSelection) (github.Backend, error) {
@@ -158,10 +165,23 @@ func defaultNewGitHubBackend(_ context.Context, selection auth.GitHubBackendSele
 		}
 		return github.NewClient(selection.Host, selection.Token.Value), nil
 	case auth.GitHubBackendNameGH:
-		return github.NewGHBackend(github.GHBackendOptions{Host: selection.Host})
+		return github.NewGHBackend(github.GHBackendOptions{
+			Host: selection.Host,
+			CLIOptions: github.GHCLIOptions{
+				Redactor: defaultGHBackendRedactor(selection),
+			},
+		})
 	default:
 		return nil, fmt.Errorf("unsupported GitHub backend %q", selection.Name)
 	}
+}
+
+func defaultGHBackendRedactor(selection auth.GitHubBackendSelection) github.ExternalCLIRedactor {
+	values := []string{selection.Token.Value}
+	for _, envName := range []string{"ISSUE_SPEC_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
+		values = append(values, os.Getenv(envName))
+	}
+	return github.NewExternalCLIRedactor(values...)
 }
 
 func defaultGitHubBackendToken(ctx context.Context, selection auth.GitHubBackendSelection) (string, error) {

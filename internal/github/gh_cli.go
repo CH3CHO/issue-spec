@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -29,11 +30,12 @@ func NewGHCLI(options GHCLIOptions) (*GHCLI, error) {
 	if binary == "" {
 		binary = ghCLIName
 	}
+	redactor := options.Redactor.WithValues(ghSensitiveEnvTokenValues()...)
 	cli, err := NewExternalCLI(ExternalCLIDescriptor{
 		Identity:    ExternalCLIIdentity{Name: ghCLIName, Binary: binary},
 		HostAdapter: ghHostAdapter{},
 		APIAdapter:  GHAPIAdapter{},
-	}, options.Runner, options.Redactor)
+	}, options.Runner, redactor)
 	if err != nil {
 		return nil, err
 	}
@@ -133,6 +135,16 @@ func endpointWithQuery(endpoint string, query url.Values) string {
 		separator = "&"
 	}
 	return endpoint + separator + encoded
+}
+
+func ghSensitiveEnvTokenValues() []string {
+	var values []string
+	for _, envName := range []string{"ISSUE_SPEC_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
+		if value := strings.TrimSpace(os.Getenv(envName)); value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 type GHBackendOptions struct {
