@@ -16,7 +16,7 @@ func TestWriteWorkflowArtifactsUsesCurrentCodexSkillPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := len(result.SkillFiles), 12; got != want {
+	if got, want := len(result.SkillFiles), 14; got != want {
 		t.Fatalf("skill file count = %d, want %d", got, want)
 	}
 	if got, want := len(result.CommandFiles), 10; got != want {
@@ -46,6 +46,18 @@ func TestWriteWorkflowArtifactsUsesCurrentCodexSkillPath(t *testing.T) {
 	} {
 		if !strings.Contains(workflowSkill, want) {
 			t.Fatalf("workflow skill missing %q:\n%s", want, workflowSkill)
+		}
+	}
+
+	githubSkill := readTestFile(t, filepath.Join(root, ".agents", "skills", "github", "SKILL.md"))
+	for _, want := range []string{
+		"name: github",
+		"gh auth login",
+		"gh pr checks",
+		"issue-spec owns the proposal, design, implement",
+	} {
+		if !strings.Contains(githubSkill, want) {
+			t.Fatalf("github skill missing %q:\n%s", want, githubSkill)
 		}
 	}
 

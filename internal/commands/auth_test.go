@@ -297,6 +297,84 @@ func TestAuthTokenJSONIncludeTokenForGHUsesExplicitTokenProvider(t *testing.T) {
 	}
 }
 
+func TestAuthLoginWithoutTokenRecommendsAuthenticatedGH(t *testing.T) {
+	stubGHDiscovery(t, true, nil)
+	var out, errOut bytes.Buffer
+	app := newApp(strings.NewReader(""), &out, &errOut)
+
+	code := app.runAuthLogin(context.Background(), nil)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr=%q", code, errOut.String())
+	}
+	output := out.String()
+	for _, want := range []string{
+		"GitHub CLI is installed and authenticated",
+		"reuse your gh CLI login directly",
+		"issue-spec auth status --json",
+		"For the REST token storage path instead",
+		"issue-spec auth login --with-token",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("auth login output missing %q:\n%s", want, output)
+		}
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("unexpected stderr: %q", errOut.String())
+	}
+}
+
+func TestAuthLoginWithoutTokenPromptsGHAuthWhenInstalledUnauthenticated(t *testing.T) {
+	stubGHDiscovery(t, true, errors.New("not logged in"))
+	var out, errOut bytes.Buffer
+	app := newApp(strings.NewReader(""), &out, &errOut)
+
+	code := app.runAuthLogin(context.Background(), []string{"--hostname", "https://ghe.example.com/"})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr=%q", code, errOut.String())
+	}
+	output := out.String()
+	for _, want := range []string{
+		"GitHub CLI is installed but is not authenticated for ghe.example.com",
+		"gh auth login",
+		"issue-spec auth status --json",
+		"For the REST token storage path instead",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("auth login output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestAuthLoginWithoutTokenFallsBackToRESTWhenGHMissing(t *testing.T) {
+	stubGHDiscovery(t, false, nil)
+	var out, errOut bytes.Buffer
+	app := newApp(strings.NewReader(""), &out, &errOut)
+
+	code := app.runAuthLogin(context.Background(), []string{"--json"})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr=%q", code, errOut.String())
+	}
+	var got struct {
+		OK        bool `json:"ok"`
+		GitHubCLI struct {
+			Installed bool `json:"installed"`
+		} `json:"github_cli"`
+		Backend          string `json:"backend"`
+		Mode             string `json:"mode"`
+		RESTLoginCommand string `json:"rest_login_command"`
+		GHDownloadURL    string `json:"gh_download_url"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.OK || got.GitHubCLI.Installed || got.Backend != "rest" || got.Mode != "rest-fallback" {
+		t.Fatalf("unexpected auth login advice: %+v", got)
+	}
+	if got.RESTLoginCommand != "issue-spec auth login --with-token" || got.GHDownloadURL != "https://cli.github.com/" {
+		t.Fatalf("unexpected commands in advice: %+v", got)
+	}
+}
+
 func TestInitJSONIncludesBackendDiagnostics(t *testing.T) {
 	t.Chdir(t.TempDir())
 	var out, errOut bytes.Buffer
@@ -475,6 +553,25 @@ func installFakeGH(t *testing.T, script string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func stubGHDiscovery(t *testing.T, installed bool, authErr error) {
+	t.Helper()
+	oldLookPath := ghLookPath
+	oldAuthenticated := ghAuthenticated
+	t.Cleanup(func() {
+		ghLookPath = oldLookPath
+		ghAuthenticated = oldAuthenticated
+	})
+	ghLookPath = func(string) (string, error) {
+		if installed {
+			return "/usr/bin/gh", nil
+		}
+		return "", errors.New("gh not found")
+	}
+	ghAuthenticated = func(context.Context, string) error {
+		return authErr
+	}
 }
 
 func ghSelection(context.Context, string) (auth.GitHubBackendSelection, error) {

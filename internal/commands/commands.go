@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -80,6 +81,7 @@ func newApp(in io.Reader, out io.Writer, errOut io.Writer) *app {
 
 var ghAuthenticated = github.GHAuthenticated
 var ghAuthToken = github.GHAuthToken
+var ghLookPath = exec.LookPath
 
 func defaultSelectGitHubBackend(ctx context.Context, host string) (auth.GitHubBackendSelection, error) {
 	return auth.SelectGitHubBackendWithOptions(ctx, host, auth.GitHubBackendSelectionOptions{

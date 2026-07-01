@@ -69,6 +69,14 @@ gh auth login
 issue-spec auth status --json
 ```
 
+You can also ask issue-spec for the recommended login path:
+
+```bash
+issue-spec auth login
+```
+
+If `gh` is installed and authenticated, issue-spec tells you to reuse that session directly. If `gh` is installed but not authenticated, it points you to `gh auth login`. If `gh` is not installed, issue-spec explains that the fallback path is REST token login and recommends installing GitHub CLI from https://cli.github.com/ for the full local workflow.
+
 If you need issue-spec to store a REST token directly, use:
 
 ```bash
@@ -128,6 +136,8 @@ ISSUE_SPEC_GITHUB_BACKEND=gh issue-spec auth status --json
 Enterprise hosts are passed to `gh` with `--hostname`. `ISSUE_SPEC_API_URL` is a REST-backend setting; forced `gh` mode fails when a custom API URL is configured because `gh api` must be able to address the host itself.
 
 `issue-spec auth token --plain` prints a token only when explicitly requested. In `gh` mode it delegates to `gh auth token`; `auth status` and `init` do not print token values.
+
+`issue-spec auth login` without `--with-token` is a login advisor. It does not store a token by itself. It detects the local GitHub CLI state and prints the recommended path: reuse authenticated `gh`, run `gh auth login`, or use REST token fallback with `issue-spec auth login --with-token`.
 
 For older `issue-spec` versions, or when deliberately forcing REST while sourcing the token from `gh`, use the compatibility wrapper:
 
@@ -237,6 +247,7 @@ issue-spec init --repo owner/repo --tools codex,claude --delivery both
 
 - Codex skills are written to `.agents/skills/issue-spec-*`, the current Codex repo skill location.
 - Claude skills are written to `.claude/skills/issue-spec-*`.
+- Both skill sets also include a generated `.*/skills/github/SKILL.md` support skill for adjacent GitHub CLI operations that issue-spec does not wrap directly.
 - Claude slash commands are written to `.claude/commands/issue-spec/*.md`, invoked like `/issue-spec:propose`.
 - Codex slash prompts are written to `${CODEX_HOME:-~/.codex}/prompts/issue-spec-*.md` for compatibility with Codex custom prompts. Codex custom prompts are deprecated by current Codex docs; prefer skills for shared workflows.
 - `--delivery skills` writes only skills; `--delivery commands` writes only slash commands.
@@ -247,6 +258,7 @@ If `--tools` is omitted, init detects existing `.agents` or `.claude` directorie
 
 ```bash
 issue-spec auth status
+issue-spec auth login
 issue-spec auth login --with-token
 issue-spec auth logout
 issue-spec auth token --plain

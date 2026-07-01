@@ -80,8 +80,7 @@ func (a *app) runAuthLogin(ctx context.Context, args []string) int {
 		return 2
 	}
 	if !*withToken {
-		a.errorf("auth login currently requires --with-token\n")
-		return 2
+		return a.runAuthLoginAdvice(ctx, *host, *jsonOut)
 	}
 	data, err := io.ReadAll(a.in)
 	if err != nil {
@@ -113,6 +112,82 @@ func (a *app) runAuthLogin(ctx context.Context, args []string) int {
 	}
 	fmt.Fprintf(a.out, "logged in to %s as %s using %s storage\n", hostName, user.Login, source)
 	return 0
+}
+
+type authLoginAdvice struct {
+	OK               bool     `json:"ok"`
+	Host             string   `json:"host"`
+	Backend          string   `json:"backend"`
+	Mode             string   `json:"mode"`
+	GitHubCLI        ghAdvice `json:"github_cli"`
+	Message          string   `json:"message"`
+	NextSteps        []string `json:"next_steps"`
+	RESTLoginCommand string   `json:"rest_login_command,omitempty"`
+	GHLoginCommand   string   `json:"gh_login_command,omitempty"`
+	GHDownloadURL    string   `json:"gh_download_url,omitempty"`
+}
+
+type ghAdvice struct {
+	Installed     bool   `json:"installed"`
+	Authenticated bool   `json:"authenticated"`
+	Error         string `json:"error,omitempty"`
+}
+
+const ghDownloadURL = "https://cli.github.com/"
+
+func (a *app) runAuthLoginAdvice(ctx context.Context, host string, jsonOut bool) int {
+	advice := buildAuthLoginAdvice(ctx, host)
+	if jsonOut {
+		return a.outputJSON(advice)
+	}
+	fmt.Fprintln(a.out, advice.Message)
+	for _, step := range advice.NextSteps {
+		fmt.Fprintf(a.out, "  %s\n", step)
+	}
+	return 0
+}
+
+func buildAuthLoginAdvice(ctx context.Context, host string) authLoginAdvice {
+	host = auth.NormalizeHost(host)
+	const restLoginCommand = "issue-spec auth login --with-token"
+	if _, err := ghLookPath("gh"); err != nil {
+		return authLoginAdvice{
+			OK:               true,
+			Host:             host,
+			Backend:          auth.GitHubBackendNameREST,
+			Mode:             "rest-fallback",
+			GitHubCLI:        ghAdvice{Installed: false},
+			Message:          fmt.Sprintf("GitHub CLI was not found. issue-spec is using the fallback REST token login mode for %s.", host),
+			NextSteps:        []string{restLoginCommand, "Install GitHub CLI from " + ghDownloadURL + " for the complete local workflow experience."},
+			RESTLoginCommand: restLoginCommand,
+			GHDownloadURL:    ghDownloadURL,
+		}
+	}
+
+	if err := ghAuthenticated(ctx, host); err != nil {
+		return authLoginAdvice{
+			OK:               true,
+			Host:             host,
+			Backend:          auth.GitHubBackendNameGH,
+			Mode:             "gh-needs-auth",
+			GitHubCLI:        ghAdvice{Installed: true, Authenticated: false, Error: err.Error()},
+			Message:          fmt.Sprintf("GitHub CLI is installed but is not authenticated for %s. Authenticate gh first, then issue-spec can reuse that login.", host),
+			NextSteps:        []string{"gh auth login", "issue-spec auth status --json", "For the REST token storage path instead, run: " + restLoginCommand},
+			RESTLoginCommand: restLoginCommand,
+			GHLoginCommand:   "gh auth login",
+		}
+	}
+
+	return authLoginAdvice{
+		OK:               true,
+		Host:             host,
+		Backend:          auth.GitHubBackendNameGH,
+		Mode:             "gh-reuse",
+		GitHubCLI:        ghAdvice{Installed: true, Authenticated: true},
+		Message:          fmt.Sprintf("GitHub CLI is installed and authenticated for %s. issue-spec can reuse your gh CLI login directly; no issue-spec token login is required.", host),
+		NextSteps:        []string{"issue-spec auth status --json", "For the REST token storage path instead, run: " + restLoginCommand},
+		RESTLoginCommand: restLoginCommand,
+	}
 }
 
 func (a *app) runAuthLogout(ctx context.Context, args []string) int {

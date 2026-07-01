@@ -7,7 +7,7 @@ import (
 
 func TestIssueSpecSkillAndCommandTemplates(t *testing.T) {
 	skills := IssueSpecSkills("owner/repo")
-	if got, want := len(skills), 6; got != want {
+	if got, want := len(skills), 7; got != want {
 		t.Fatalf("skills = %d, want %d", got, want)
 	}
 	if !strings.Contains(skills[0].Content, `generatedBy: "issue-spec"`) {
@@ -23,6 +23,23 @@ func TestIssueSpecSkillAndCommandTemplates(t *testing.T) {
 	}
 	if !strings.Contains(commands[0].Body, "issue-spec issue create proposal --repo owner/repo") {
 		t.Fatalf("command body missing repo-specific issue-spec usage:\n%s", commands[0].Body)
+	}
+}
+
+func TestIssueSpecSkillsIncludeGitHubCLISupportSkill(t *testing.T) {
+	skills := IssueSpecSkills("owner/repo")
+	github := skillContent(t, skills, "github")
+	for _, want := range []string{
+		"name: github",
+		"Use GitHub CLI for GitHub issues",
+		"gh auth login",
+		"gh pr checks",
+		"gh api",
+		"issue-spec owns the proposal, design, implement",
+	} {
+		if !strings.Contains(github, want) {
+			t.Fatalf("github skill missing %q:\n%s", want, github)
+		}
 	}
 }
 
