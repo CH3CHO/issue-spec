@@ -98,6 +98,8 @@ OpenSpec active changes are usually repository files under `openspec/changes/<ch
 - design issue: design body plus `TASK` and `QUESTION` comments
 - implement issue: implementation DAG plus `PROCESS`, `REVIEW`, and `VERIFY` comments
 
+Issue bodies are the current editable proposal/design/implementation artifacts, not placeholder shells. Use `--body-file` when creating them and `issue-spec issue update --body-file --summary` when discussion changes the body, so humans can review the latest content and the audit trail in the same GitHub issue.
+
 This keeps the repository focused on current code and durable specs. Draft change history remains reviewable in GitHub, with comment threads, edits, links, and human approval points.
 
 Human-in-the-loop decisions are first-class:
@@ -109,18 +111,28 @@ Human-in-the-loop decisions are first-class:
 
 ### Native multi-agent DAG coordination
 
-`issue-spec` treats implementation as a native multi-agent workflow. Work is split into small `TASK` and `PROCESS` units, linked back to the relevant `SPEC` comments and PR work.
+`issue-spec` treats implementation and review as a native multi-agent workflow. Work is split into small `TASK` and `PROCESS` units, linked back to the relevant `SPEC` comments, PR work, and review evidence.
 
 The goal is to keep each model invocation inside its effective reasoning zone: narrow scope, clear context, explicit ownership, focused tests, and small review surfaces.
 
 The implement issue records the DAG:
 
-- worker owner and review owner
+- worker owner and review agent owner
 - branch/worktree or PR node
 - dependencies
 - owned files and scope
 - linked TASK/SPEC comments
 - status, blockers, and verification evidence
+
+For non-trivial changes, the DAG should include dedicated review PROCESS nodes, not only implementation PROCESS nodes. A coordinator may run multiple review agents in parallel when their review scopes are independent, such as CLI/API behavior, workflow documentation, tests, compatibility, or security-sensitive surfaces. Small changes may be implemented and reviewed by the coordinator directly, but the implement or verify record should state that the task was intentionally kept serial.
+
+Coordinator execution follows a ready-node loop:
+
+- select PROCESS nodes whose dependencies are done and whose write/review scopes do not overlap
+- dispatch independent worker or review agents in parallel when that reduces context size without creating integration risk
+- integrate completed worker outputs by dependency order and add PR rationale for the changed lines
+- route P0/P1 review findings back to the owner PROCESS before final verification
+- mark review PROCESS nodes done only after their review evidence is recorded and blocking findings are resolved
 
 The CLI does not act as a scheduler that launches agents automatically. It provides the shared state, links, and gates that let a coordinator safely split work across multiple agents without losing traceability.
 
@@ -185,9 +197,10 @@ issue-spec auth token --plain
 issue-spec init --repo owner/repo --create-labels
 issue-spec init --repo owner/repo --tools codex,claude --delivery both
 
-issue-spec issue create proposal --repo owner/repo --change my-change
-issue-spec issue create design --repo owner/repo --change my-change --proposal 1
-issue-spec issue create implement --repo owner/repo --change my-change --design 2
+issue-spec issue create proposal --repo owner/repo --change my-change --body-file proposal.md
+issue-spec issue create design --repo owner/repo --change my-change --proposal 1 --body-file design.md
+issue-spec issue create implement --repo owner/repo --change my-change --proposal 1 --design 2 --body-file implement.md
+issue-spec issue update --repo owner/repo --issue 1 --body-file proposal.md --summary "Clarified goals after review."
 
 issue-spec comment upsert --repo owner/repo --issue 1 --type SPEC --id SPEC-001 --body-file spec.md
 issue-spec comment list --repo owner/repo --issue 1 --json

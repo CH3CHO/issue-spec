@@ -69,7 +69,8 @@ func (a *app) printUsage() {
 Usage:
   issue-spec auth status|login|logout|token
   issue-spec init --repo owner/repo [--create-labels] [--tools codex,claude|all|none] [--delivery both|skills|commands]
-  issue-spec issue create proposal|design|implement --repo owner/repo --change name
+  issue-spec issue create proposal|design|implement --repo owner/repo --change name [--body-file file.md]
+  issue-spec issue update --repo owner/repo --issue N [--title title] [--body-file file.md] [--summary "what changed"]
   issue-spec comment upsert --repo owner/repo --issue N --type SPEC --id SPEC-001 --body-file file.md
   issue-spec comment list --repo owner/repo --issue N [--type SPEC] [--json]
   issue-spec question create --repo owner/repo --issue N --id QUESTION-001 --question "..."
@@ -111,8 +112,12 @@ func (a *app) validateRepo(repo string) (string, bool) {
 }
 
 func (a *app) readBodyFile(path string) (string, bool) {
+	return a.readFlagFile(path, "body-file")
+}
+
+func (a *app) readFlagFile(path, name string) (string, bool) {
 	if strings.TrimSpace(path) == "" {
-		a.errorf("--body-file is required\n")
+		a.errorf("--%s is required\n", name)
 		return "", false
 	}
 	var data []byte
@@ -123,7 +128,7 @@ func (a *app) readBodyFile(path string) (string, bool) {
 		data, err = os.ReadFile(path)
 	}
 	if err != nil {
-		a.errorf("read body file %s: %v\n", path, err)
+		a.errorf("read %s %s: %v\n", name, path, err)
 		return "", false
 	}
 	return string(data), true

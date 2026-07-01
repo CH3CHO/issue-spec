@@ -87,6 +87,11 @@ type CreatePullRequestOptions struct {
 	Draft bool
 }
 
+type UpdateIssueOptions struct {
+	Title *string
+	Body  *string
+}
+
 type PullRequestFile struct {
 	Filename string `json:"filename"`
 	Patch    string `json:"patch"`
@@ -172,6 +177,19 @@ func (c *Client) CreateIssue(ctx context.Context, repo, title, body string, labe
 func (c *Client) GetIssue(ctx context.Context, repo string, issueNumber int) (Issue, error) {
 	var issue Issue
 	err := c.doJSON(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/issues/%d", repo, issueNumber), nil, &issue)
+	return issue, err
+}
+
+func (c *Client) UpdateIssue(ctx context.Context, repo string, issueNumber int, opts UpdateIssueOptions) (Issue, error) {
+	payload := map[string]any{}
+	if opts.Title != nil {
+		payload["title"] = *opts.Title
+	}
+	if opts.Body != nil {
+		payload["body"] = *opts.Body
+	}
+	var issue Issue
+	err := c.doJSON(ctx, http.MethodPatch, fmt.Sprintf("/repos/%s/issues/%d", repo, issueNumber), payload, &issue)
 	return issue, err
 }
 
