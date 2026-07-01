@@ -82,10 +82,21 @@ Use this skill for issue-native OpenSpec work. Active change artifacts live in G
 - Resolve blocking QUESTION comments before design/tasks, or explicitly record accepted assumptions.
 - Link SPEC <-> TASK and TASK <-> PROCESS with issue-spec link.
 - Link every PROCESS to the implementation PR with issue-spec pr link-process.
+- For non-trivial changes, include review PROCESS nodes in the DAG; review agents are scheduled like worker agents and can run in parallel when their review scopes are independent.
+- Small changes may stay coordinator-only, but record the serial execution decision in the implement or VERIFY evidence.
 - Before human review, add PR rationale comments with issue-spec pr rationale for every active PROCESS.
 - Use issue-spec review finding for PR line findings and issue-spec review reply to close the original thread.
 - Run issue-spec review sync and issue-spec verify before declaring ready.
 - After the implementation PR merges, create the separate durable spec PR with issue-spec archive durable-spec --create-pr.
+
+## Coordinator DAG Execution
+
+1. Treat PROCESS comments as DAG nodes with explicit owner, dependencies, write or review scope, PR link, and evidence.
+2. Select ready PROCESS nodes whose dependencies are done and whose scopes do not overlap.
+3. Dispatch independent worker PROCESS nodes in parallel when their file/module ownership is disjoint.
+4. Dispatch independent review PROCESS nodes in parallel for non-trivial PRs after PR rationale exists.
+5. Integrate completed worker outputs by dependency order; route P0/P1 review findings back to the owner PROCESS.
+6. Mark PROCESS nodes done only after their implementation or review evidence is recorded and blocking findings are resolved.
 `,
 		},
 		{
@@ -133,12 +144,22 @@ Use when the user asks for /issue-spec:apply, issue-spec apply, or implementing 
 ## Steps
 
 1. Read proposal/design/implement issue context and list typed comments with issue-spec comment list --json.
-2. Create or update PROCESS comments with owner agent, scope, dependencies, and status.
-3. Link each PROCESS to its TASK comments with issue-spec link.
-4. Implement the code changes for one PROCESS scope at a time.
-5. Link the PROCESS to the PR with issue-spec pr link-process.
-6. Add PR rationale comments on key changed lines with issue-spec pr rationale, each linked to a SPEC comment.
-7. Mark PROCESS comments done only after implementation and focused verification evidence exist.
+2. Create or update PROCESS comments with owner agent, scope, dependencies, write ownership, and status.
+3. Split non-trivial work into independent worker PROCESS nodes when file/module ownership does not overlap; execute independent workers in parallel when available.
+4. Add dedicated review PROCESS nodes for non-trivial changes. Review PROCESS nodes should own review scopes such as CLI/API behavior, workflow docs, tests, compatibility, or security-sensitive surfaces.
+5. Link each PROCESS to its TASK comments with issue-spec link.
+6. Implement the code changes for one PROCESS scope at a time, or integrate completed worker outputs by dependency order.
+7. Link every worker and review PROCESS to the PR with issue-spec pr link-process.
+8. Add PR rationale comments on key changed lines with issue-spec pr rationale, each linked to a SPEC comment.
+9. Mark PROCESS comments done only after implementation/review work and focused verification evidence exist.
+
+## Coordinator DAG Execution
+
+1. Build the ready set from PROCESS nodes whose dependencies are done.
+2. Keep immediate blocking work local when the next step depends on it.
+3. Spawn or assign independent worker agents only when their write ownership is disjoint.
+4. Spawn or assign independent review agents only when their review scopes are disjoint.
+5. Integrate completed outputs by dependency order and update PROCESS evidence before marking done.
 `,
 		},
 		{
@@ -153,10 +174,20 @@ Use when the user asks for /issue-spec:review, issue-spec review, or a PR review
 ## Steps
 
 1. Run issue-spec review sync --repo {{repo}} --pr <number> --implement <issue> --id REVIEW-<n> --json to capture current rationale comments, findings, and checks.
-2. Create actionable PR line findings with issue-spec review finding. Use P0/P1 for blockers and P2 for non-blocking follow-up.
-3. Assign every finding to a PROCESS owner.
-4. After the worker fixes a finding, reply to the original thread with issue-spec review reply --status resolved.
-5. Re-run review sync. P0/P1 findings must be resolved before final verify/archive.
+2. For non-trivial PRs, spawn or assign dedicated review agents as review PROCESS owners. Multiple review agents can run in parallel when their review scopes are independent.
+3. Give each review agent a concrete scope and expected output: actionable findings only, severity, file/line, linked SPEC, owner PROCESS, and suggested fix.
+4. Create actionable PR line findings with issue-spec review finding. Use P0/P1 for blockers and P2 for non-blocking follow-up.
+5. Assign every finding to a PROCESS owner. If no findings are found, record that result in REVIEW or VERIFY evidence.
+6. After the worker fixes a finding, reply to the original thread with issue-spec review reply --status resolved.
+7. Re-run review sync. P0/P1 findings must be resolved before final verify/archive.
+
+## Review DAG Policy
+
+1. Every non-trivial PR should have at least one dedicated review PROCESS node before final verify.
+2. Use multiple review agents in parallel when scopes are independent, for example CLI/API behavior, workflow docs, tests, compatibility, or security-sensitive surfaces.
+3. A review agent reports findings only; the coordinator converts actionable line findings into issue-spec review finding comments.
+4. P0/P1 findings block final verify until the owner PROCESS fixes them and issue-spec review reply records the resolution on the original thread.
+5. If a review agent finds no issues, record that result in REVIEW or VERIFY evidence before marking the review PROCESS done.
 `,
 		},
 		{

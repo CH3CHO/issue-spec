@@ -71,6 +71,37 @@ func TestBuildReviewSyncReportResolvedFindingReply(t *testing.T) {
 	}
 }
 
+func TestBuildReviewSyncReportDoesNotResolveDuplicateFindingIDAcrossThreads(t *testing.T) {
+	firstFinding, err := model.RenderFindingBody("Review", "FINDING-001", "P1", "PROCESS-001", "SPEC-001", "https://github.com/o/r/issues/1#issuecomment-1", "Fix this first issue.", "open", "a.go", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondFinding, err := model.RenderFindingBody("Review", "FINDING-001", "P1", "PROCESS-002", "SPEC-001", "https://github.com/o/r/issues/1#issuecomment-1", "Fix this second issue.", "open", "b.go", 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := model.RenderFindingReplyBody("Worker", "FINDING-001", "PROCESS-001", "resolved", "Fixed only the first thread.")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	report := buildReviewSyncReport(github.PullRequest{Number: 4, HTMLURL: "https://github.com/o/r/pull/4"}, []github.PullRequestReviewComment{
+		{ID: 2, Body: firstFinding, Path: "a.go", Line: 10, HTMLURL: "https://github.com/o/r/pull/4#discussion_r2"},
+		{ID: 3, Body: secondFinding, Path: "b.go", Line: 20, HTMLURL: "https://github.com/o/r/pull/4#discussion_r3"},
+		{ID: 4, InReplyToID: 2, Body: reply, Path: "a.go", Line: 10, HTMLURL: "https://github.com/o/r/pull/4#discussion_r4"},
+	}, nil, github.CombinedStatus{}, nil)
+
+	if report.OK {
+		t.Fatalf("second duplicate finding should still block review sync: %+v", report)
+	}
+	if len(report.ResolvedFindings) != 1 || report.ResolvedFindings[0].CommentID != 2 {
+		t.Fatalf("unexpected resolved findings: %+v", report.ResolvedFindings)
+	}
+	if len(report.BlockingFindings) != 1 || report.BlockingFindings[0].CommentID != 3 {
+		t.Fatalf("unexpected blocking findings: %+v", report.BlockingFindings)
+	}
+}
+
 func TestRenderReviewSyncComment(t *testing.T) {
 	body, err := renderReviewSyncComment("REVIEW-001", "Coordinator", "pr-review", "https://github.com/o/r/pull/4", reviewSyncReport{
 		OK:                true,

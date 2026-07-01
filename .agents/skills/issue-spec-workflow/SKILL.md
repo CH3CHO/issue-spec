@@ -28,7 +28,18 @@ Use this skill for issue-native OpenSpec work. Active change artifacts live in G
 - Resolve blocking QUESTION comments before design/tasks, or explicitly record accepted assumptions.
 - Link SPEC <-> TASK and TASK <-> PROCESS with issue-spec link.
 - Link every PROCESS to the implementation PR with issue-spec pr link-process.
+- For non-trivial changes, include review PROCESS nodes in the DAG; review agents are scheduled like worker agents and can run in parallel when their review scopes are independent.
+- Small changes may stay coordinator-only, but record the serial execution decision in the implement or VERIFY evidence.
 - Before human review, add PR rationale comments with issue-spec pr rationale for every active PROCESS.
 - Use issue-spec review finding for PR line findings and issue-spec review reply to close the original thread.
 - Run issue-spec review sync and issue-spec verify before declaring ready.
 - After the implementation PR merges, create the separate durable spec PR with issue-spec archive durable-spec --create-pr.
+
+## Coordinator DAG Execution
+
+1. Treat PROCESS comments as DAG nodes with explicit owner, dependencies, write or review scope, PR link, and evidence.
+2. Select ready PROCESS nodes whose dependencies are done and whose scopes do not overlap.
+3. Dispatch independent worker PROCESS nodes in parallel when their file/module ownership is disjoint.
+4. Dispatch independent review PROCESS nodes in parallel for non-trivial PRs after PR rationale exists.
+5. Integrate completed worker outputs by dependency order; route P0/P1 review findings back to the owner PROCESS.
+6. Mark PROCESS nodes done only after their implementation or review evidence is recorded and blocking findings are resolved.

@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/higress-group/issue-spec/internal/auth"
@@ -151,7 +152,11 @@ func (a *app) runIssueCreate(ctx context.Context, kind string, args []string) in
 			a.errorf("--body-file must not be empty\n")
 			return 2
 		}
-		body = ensureIssueBodyMarker(kind, *change, rawBody)
+		body, err = ensureIssueBodyMarker(kind, *change, rawBody)
+		if err != nil {
+			a.errorf("prepare issue body: %v\n", err)
+			return 2
+		}
 	}
 
 	issue, err := client.CreateIssue(ctx, repo, title, body, labels)
@@ -198,6 +203,10 @@ func (a *app) runIssueUpdate(ctx context.Context, args []string) int {
 		a.errorf("--body-file - and --summary-file - cannot both read from stdin\n")
 		return 2
 	}
+	if strings.TrimSpace(*summaryFlag) != "" && *summaryFile != "" {
+		a.errorf("--summary and --summary-file cannot both be provided\n")
+		return 2
+	}
 
 	client, _, err := a.clientFor(ctx, *host)
 	if err != nil {
@@ -220,7 +229,11 @@ func (a *app) runIssueUpdate(ctx context.Context, args []string) int {
 			a.errorf("read issue #%d: %v\n", issueNumber, err)
 			return 1
 		}
-		body := preserveIssueBodyMarker(existing.Body, rawBody)
+		body, err := preserveIssueBodyMarker(existing.Body, rawBody)
+		if err != nil {
+			a.errorf("prepare issue body: %v\n", err)
+			return 2
+		}
 		bodyPtr = &body
 	}
 	if titlePtr == nil && bodyPtr == nil {
@@ -234,6 +247,10 @@ func (a *app) runIssueUpdate(ctx context.Context, args []string) int {
 			return 2
 		}
 		summary = strings.TrimSpace(rawSummary)
+		if summary == "" {
+			a.errorf("--summary-file must not be empty\n")
+			return 2
+		}
 	}
 
 	issue, err := client.UpdateIssue(ctx, repo, issueNumber, github.UpdateIssueOptions{Title: titlePtr, Body: bodyPtr})
@@ -262,37 +279,46 @@ func (a *app) runIssueUpdate(ctx context.Context, args []string) int {
 	return 0
 }
 
-func ensureIssueBodyMarker(kind, change, body string) string {
+var issueBodyMarkerLineRe = regexp.MustCompile(`^<!--\s*issue-spec:issue=([a-z]+)(?:\s+[^>]*)?-->$`)
+
+func ensureIssueBodyMarker(kind, change, body string) (string, error) {
 	body = strings.TrimLeft(body, "\n")
-	if hasIssueBodyMarker(body) {
-		return body
+	if marker, markerKind := extractIssueBodyMarker(body); marker != "" {
+		if markerKind != kind {
+			return "", fmt.Errorf("body marker issue class is %s, command requested %s", markerKind, kind)
+		}
+		return body, nil
 	}
-	return fmt.Sprintf("<!-- issue-spec:issue=%s change=%s version=1 -->\n%s", kind, change, body)
+	return fmt.Sprintf("<!-- issue-spec:issue=%s change=%s version=1 -->\n%s", kind, change, body), nil
 }
 
-func preserveIssueBodyMarker(existing, replacement string) string {
+func preserveIssueBodyMarker(existing, replacement string) (string, error) {
 	replacement = strings.TrimLeft(replacement, "\n")
-	if hasIssueBodyMarker(replacement) {
-		return replacement
+	if _, replacementKind := extractIssueBodyMarker(replacement); replacementKind != "" {
+		if _, existingKind := extractIssueBodyMarker(existing); existingKind != "" && replacementKind != existingKind {
+			return "", fmt.Errorf("replacement marker issue class is %s, existing issue class is %s", replacementKind, existingKind)
+		}
+		return replacement, nil
 	}
-	if marker := extractIssueBodyMarker(existing); marker != "" {
-		return marker + "\n" + replacement
+	if marker, _ := extractIssueBodyMarker(existing); marker != "" {
+		return marker + "\n" + replacement, nil
 	}
-	return replacement
+	return replacement, nil
 }
 
 func hasIssueBodyMarker(body string) bool {
-	return strings.Contains(body, "issue-spec:issue=")
+	marker, _ := extractIssueBodyMarker(body)
+	return marker != ""
 }
 
-func extractIssueBodyMarker(body string) string {
+func extractIssueBodyMarker(body string) (string, string) {
 	for _, line := range strings.Split(body, "\n") {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "<!--") && strings.Contains(trimmed, "issue-spec:issue=") && strings.HasSuffix(trimmed, "-->") {
-			return trimmed
+		if match := issueBodyMarkerLineRe.FindStringSubmatch(trimmed); match != nil {
+			return trimmed, match[1]
 		}
 	}
-	return ""
+	return "", ""
 }
 
 func renderIssueUpdateSummary(issueNumber int, issueURL, summary string) string {

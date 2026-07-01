@@ -111,18 +111,28 @@ Human-in-the-loop decisions are first-class:
 
 ### Native multi-agent DAG coordination
 
-`issue-spec` treats implementation as a native multi-agent workflow. Work is split into small `TASK` and `PROCESS` units, linked back to the relevant `SPEC` comments and PR work.
+`issue-spec` treats implementation and review as a native multi-agent workflow. Work is split into small `TASK` and `PROCESS` units, linked back to the relevant `SPEC` comments, PR work, and review evidence.
 
 The goal is to keep each model invocation inside its effective reasoning zone: narrow scope, clear context, explicit ownership, focused tests, and small review surfaces.
 
 The implement issue records the DAG:
 
-- worker owner and review owner
+- worker owner and review agent owner
 - branch/worktree or PR node
 - dependencies
 - owned files and scope
 - linked TASK/SPEC comments
 - status, blockers, and verification evidence
+
+For non-trivial changes, the DAG should include dedicated review PROCESS nodes, not only implementation PROCESS nodes. A coordinator may run multiple review agents in parallel when their review scopes are independent, such as CLI/API behavior, workflow documentation, tests, compatibility, or security-sensitive surfaces. Small changes may be implemented and reviewed by the coordinator directly, but the implement or verify record should state that the task was intentionally kept serial.
+
+Coordinator execution follows a ready-node loop:
+
+- select PROCESS nodes whose dependencies are done and whose write/review scopes do not overlap
+- dispatch independent worker or review agents in parallel when that reduces context size without creating integration risk
+- integrate completed worker outputs by dependency order and add PR rationale for the changed lines
+- route P0/P1 review findings back to the owner PROCESS before final verification
+- mark review PROCESS nodes done only after their review evidence is recorded and blocking findings are resolved
 
 The CLI does not act as a scheduler that launches agents automatically. It provides the shared state, links, and gates that let a coordinator safely split work across multiple agents without losing traceability.
 

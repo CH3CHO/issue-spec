@@ -432,7 +432,6 @@ type reviewCheck struct {
 func buildReviewSyncReport(pr github.PullRequest, reviewComments []github.PullRequestReviewComment, issueComments []github.Comment, status github.CombinedStatus, checkRuns []github.CheckRun) reviewSyncReport {
 	report := reviewSyncReport{PR: pr.Number, PRURL: pr.HTMLURL, IssueComments: len(issueComments)}
 	resolvedByParent := map[int64]bool{}
-	resolvedByFinding := map[string]bool{}
 	for _, comment := range reviewComments {
 		reply, ok, err := model.FindFindingReplyMarker(comment.Body)
 		if err != nil || !ok || !model.IsTerminalFindingStatus(reply.Status) {
@@ -440,9 +439,6 @@ func buildReviewSyncReport(pr github.PullRequest, reviewComments []github.PullRe
 		}
 		if comment.InReplyToID != 0 {
 			resolvedByParent[comment.InReplyToID] = true
-		}
-		if reply.Finding != "" {
-			resolvedByFinding[reply.Finding] = true
 		}
 	}
 	for _, comment := range reviewComments {
@@ -470,7 +466,7 @@ func buildReviewSyncReport(pr github.PullRequest, reviewComments []github.PullRe
 				Spec:      finding.Spec,
 				Summary:   firstFindingSummary(comment.Body),
 			}
-			if model.IsTerminalFindingStatus(item.Status) || resolvedByParent[comment.ID] || resolvedByFinding[item.ID] {
+			if model.IsTerminalFindingStatus(item.Status) || resolvedByParent[comment.ID] {
 				item.Status = "resolved"
 				report.ResolvedFindings = append(report.ResolvedFindings, item)
 				continue
