@@ -28,9 +28,13 @@ func TestIssueSpecSkillAndCommandTemplates(t *testing.T) {
 
 func TestIssueSpecSkillsIncludeGitHubCLISupportSkill(t *testing.T) {
 	skills := IssueSpecSkills("owner/repo")
-	github := skillContent(t, skills, "github")
+	if hasSkill(skills, "github") {
+		t.Fatal("generic github skill should not be generated")
+	}
+	github := skillContent(t, skills, "issue-spec-github")
 	for _, want := range []string{
-		"name: github",
+		"name: issue-spec-github",
+		"compatibility: Requires GitHub CLI (gh).",
 		"Use GitHub CLI for GitHub issues",
 		"gh auth login",
 		"gh pr checks",
@@ -81,4 +85,13 @@ func skillContent(t *testing.T, skills []RenderedSkill, name string) string {
 	}
 	t.Fatalf("skill %q not found", name)
 	return ""
+}
+
+func hasSkill(skills []RenderedSkill, name string) bool {
+	for _, skill := range skills {
+		if skill.Name == name {
+			return true
+		}
+	}
+	return false
 }

@@ -335,12 +335,63 @@ func TestAuthLoginWithoutTokenPromptsGHAuthWhenInstalledUnauthenticated(t *testi
 	output := out.String()
 	for _, want := range []string{
 		"GitHub CLI is installed but is not authenticated for ghe.example.com",
-		"gh auth login",
-		"issue-spec auth status --json",
+		"gh auth login --hostname ghe.example.com",
+		"issue-spec auth status --hostname ghe.example.com --json",
 		"For the REST token storage path instead",
+		"issue-spec auth login --hostname ghe.example.com --with-token",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("auth login output missing %q:\n%s", want, output)
+		}
+	}
+}
+
+func TestAuthLoginJSONUsesStableGHUnauthenticatedError(t *testing.T) {
+	const secret = "gh-stderr-secret"
+	stubGHDiscovery(t, true, errors.New("raw gh stderr included "+secret))
+	var out, errOut bytes.Buffer
+	app := newApp(strings.NewReader(""), &out, &errOut)
+
+	code := app.runAuthLogin(context.Background(), []string{"--hostname", "https://ghe.example.com/", "--json"})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr=%q", code, errOut.String())
+	}
+	combined := out.String() + errOut.String()
+	for _, forbidden := range []string{"raw gh stderr", secret} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("auth login JSON leaked %q: stdout=%q stderr=%q", forbidden, out.String(), errOut.String())
+		}
+	}
+	var got struct {
+		OK        bool     `json:"ok"`
+		Host      string   `json:"host"`
+		Backend   string   `json:"backend"`
+		Mode      string   `json:"mode"`
+		NextSteps []string `json:"next_steps"`
+		GitHubCLI struct {
+			Installed     bool   `json:"installed"`
+			Authenticated bool   `json:"authenticated"`
+			Error         string `json:"error"`
+		} `json:"github_cli"`
+		RESTLoginCommand string `json:"rest_login_command"`
+		GHLoginCommand   string `json:"gh_login_command"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.OK || got.Host != "ghe.example.com" || got.Backend != "gh" || got.Mode != "gh-needs-auth" {
+		t.Fatalf("unexpected auth login advice: %+v", got)
+	}
+	if !got.GitHubCLI.Installed || got.GitHubCLI.Authenticated || got.GitHubCLI.Error != "not_authenticated" {
+		t.Fatalf("unexpected gh diagnostics: %+v", got.GitHubCLI)
+	}
+	for _, want := range []string{
+		"gh auth login --hostname ghe.example.com",
+		"issue-spec auth status --hostname ghe.example.com --json",
+		"issue-spec auth login --hostname ghe.example.com --with-token",
+	} {
+		if !containsString(got.NextSteps, want) && got.RESTLoginCommand != want && got.GHLoginCommand != want {
+			t.Fatalf("auth login advice missing host-aware command %q: %+v", want, got)
 		}
 	}
 }
@@ -583,6 +634,15 @@ func ghSelection(context.Context, string) (auth.GitHubBackendSelection, error) {
 		SelectionSource: "override:gh",
 		Token:           auth.Token{Source: "gh", Host: "github.com"},
 	}, nil
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeGitHubBackend struct {

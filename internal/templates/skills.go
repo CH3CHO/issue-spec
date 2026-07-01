@@ -253,22 +253,26 @@ Use when the user asks for /issue-spec:archive, issue-spec archive, or creating 
 }
 
 func renderSkill(name, description, body string) string {
+	return renderSkillWithCompatibility(name, description, "Requires issue-spec CLI.", body)
+}
+
+func renderSkillWithCompatibility(name, description, compatibility, body string) string {
 	return fmt.Sprintf(`---
 name: %s
 description: %s
 license: MIT
-compatibility: Requires issue-spec CLI.
+compatibility: %s
 metadata:
   author: issue-spec
   version: "1.0"
   generatedBy: "%s"
 ---
 
-%s`, name, description, IssueSpecGeneratedBy, strings.TrimSpace(body)+"\n")
+%s`, name, description, compatibility, IssueSpecGeneratedBy, strings.TrimSpace(body)+"\n")
 }
 
 func githubCLISkill() RenderedSkill {
-	const name = "github"
+	const name = "issue-spec-github"
 	const description = "Use GitHub CLI for GitHub issues, pull requests, CI runs, and API queries that issue-spec does not wrap."
 	const body = `# GitHub CLI
 
@@ -318,5 +322,5 @@ gh api repos/owner/repo/labels --jq '.[].name'
 - Prefer structured output with ` + "`--json`" + ` and ` + "`--jq`" + ` when another command or agent step consumes the result.
 - issue-spec owns the proposal, design, implement, typed comment, review, verify, and archive workflow state. Use ` + "`gh`" + ` for adjacent GitHub operations that are outside issue-spec's command surface.
 `
-	return RenderedSkill{Name: name, Content: renderSkill(name, description, body)}
+	return RenderedSkill{Name: name, Content: renderSkillWithCompatibility(name, description, "Requires GitHub CLI (gh).", body)}
 }

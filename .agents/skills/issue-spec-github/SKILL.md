@@ -1,8 +1,8 @@
 ---
-name: github
+name: issue-spec-github
 description: Use GitHub CLI for GitHub issues, pull requests, CI runs, and API queries that issue-spec does not wrap.
 license: MIT
-compatibility: Requires issue-spec CLI.
+compatibility: Requires GitHub CLI (gh).
 metadata:
   author: issue-spec
   version: "1.0"

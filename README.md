@@ -75,7 +75,7 @@ You can also ask issue-spec for the recommended login path:
 issue-spec auth login
 ```
 
-If `gh` is installed and authenticated, issue-spec tells you to reuse that session directly. If `gh` is installed but not authenticated, it points you to `gh auth login`. If `gh` is not installed, issue-spec explains that the fallback path is REST token login and recommends installing GitHub CLI from https://cli.github.com/ for the full local workflow.
+If `gh` is installed and authenticated, issue-spec tells you to reuse that session directly. If `gh` is installed but not authenticated, it points you to `gh auth login` or `gh auth login --hostname <host>` for GitHub Enterprise. If `gh` is not installed, issue-spec explains that the fallback path is REST token login and recommends installing GitHub CLI from https://cli.github.com/ for the full local workflow.
 
 If you need issue-spec to store a REST token directly, use:
 
@@ -247,7 +247,7 @@ issue-spec init --repo owner/repo --tools codex,claude --delivery both
 
 - Codex skills are written to `.agents/skills/issue-spec-*`, the current Codex repo skill location.
 - Claude skills are written to `.claude/skills/issue-spec-*`.
-- Both skill sets also include a generated `.*/skills/github/SKILL.md` support skill for adjacent GitHub CLI operations that issue-spec does not wrap directly.
+- Both skill sets also include a generated `.*/skills/issue-spec-github/SKILL.md` support skill for adjacent GitHub CLI operations that issue-spec does not wrap directly.
 - Claude slash commands are written to `.claude/commands/issue-spec/*.md`, invoked like `/issue-spec:propose`.
 - Codex slash prompts are written to `${CODEX_HOME:-~/.codex}/prompts/issue-spec-*.md` for compatibility with Codex custom prompts. Codex custom prompts are deprecated by current Codex docs; prefer skills for shared workflows.
 - `--delivery skills` writes only skills; `--delivery commands` writes only slash commands.

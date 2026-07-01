@@ -134,6 +134,7 @@ type ghAdvice struct {
 }
 
 const ghDownloadURL = "https://cli.github.com/"
+const ghNotAuthenticatedError = "not_authenticated"
 
 func (a *app) runAuthLoginAdvice(ctx context.Context, host string, jsonOut bool) int {
 	advice := buildAuthLoginAdvice(ctx, host)
@@ -149,7 +150,9 @@ func (a *app) runAuthLoginAdvice(ctx context.Context, host string, jsonOut bool)
 
 func buildAuthLoginAdvice(ctx context.Context, host string) authLoginAdvice {
 	host = auth.NormalizeHost(host)
-	const restLoginCommand = "issue-spec auth login --with-token"
+	restLoginCommand := issueSpecAuthLoginWithTokenCommand(host)
+	statusCommand := issueSpecAuthStatusJSONCommand(host)
+	ghLoginCommand := ghAuthLoginCommand(host)
 	if _, err := ghLookPath("gh"); err != nil {
 		return authLoginAdvice{
 			OK:               true,
@@ -170,11 +173,11 @@ func buildAuthLoginAdvice(ctx context.Context, host string) authLoginAdvice {
 			Host:             host,
 			Backend:          auth.GitHubBackendNameGH,
 			Mode:             "gh-needs-auth",
-			GitHubCLI:        ghAdvice{Installed: true, Authenticated: false, Error: err.Error()},
+			GitHubCLI:        ghAdvice{Installed: true, Authenticated: false, Error: ghNotAuthenticatedError},
 			Message:          fmt.Sprintf("GitHub CLI is installed but is not authenticated for %s. Authenticate gh first, then issue-spec can reuse that login.", host),
-			NextSteps:        []string{"gh auth login", "issue-spec auth status --json", "For the REST token storage path instead, run: " + restLoginCommand},
+			NextSteps:        []string{ghLoginCommand, statusCommand, "For the REST token storage path instead, run: " + restLoginCommand},
 			RESTLoginCommand: restLoginCommand,
-			GHLoginCommand:   "gh auth login",
+			GHLoginCommand:   ghLoginCommand,
 		}
 	}
 
@@ -185,9 +188,34 @@ func buildAuthLoginAdvice(ctx context.Context, host string) authLoginAdvice {
 		Mode:             "gh-reuse",
 		GitHubCLI:        ghAdvice{Installed: true, Authenticated: true},
 		Message:          fmt.Sprintf("GitHub CLI is installed and authenticated for %s. issue-spec can reuse your gh CLI login directly; no issue-spec token login is required.", host),
-		NextSteps:        []string{"issue-spec auth status --json", "For the REST token storage path instead, run: " + restLoginCommand},
+		NextSteps:        []string{statusCommand, "For the REST token storage path instead, run: " + restLoginCommand},
 		RESTLoginCommand: restLoginCommand,
 	}
+}
+
+func issueSpecAuthLoginWithTokenCommand(host string) string {
+	if isDefaultGitHubHost(host) {
+		return "issue-spec auth login --with-token"
+	}
+	return fmt.Sprintf("issue-spec auth login --hostname %s --with-token", host)
+}
+
+func issueSpecAuthStatusJSONCommand(host string) string {
+	if isDefaultGitHubHost(host) {
+		return "issue-spec auth status --json"
+	}
+	return fmt.Sprintf("issue-spec auth status --hostname %s --json", host)
+}
+
+func ghAuthLoginCommand(host string) string {
+	if isDefaultGitHubHost(host) {
+		return "gh auth login"
+	}
+	return fmt.Sprintf("gh auth login --hostname %s", host)
+}
+
+func isDefaultGitHubHost(host string) bool {
+	return strings.EqualFold(auth.NormalizeHost(host), "github.com")
 }
 
 func (a *app) runAuthLogout(ctx context.Context, args []string) int {

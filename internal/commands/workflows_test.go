@@ -49,9 +49,10 @@ func TestWriteWorkflowArtifactsUsesCurrentCodexSkillPath(t *testing.T) {
 		}
 	}
 
-	githubSkill := readTestFile(t, filepath.Join(root, ".agents", "skills", "github", "SKILL.md"))
+	githubSkill := readTestFile(t, filepath.Join(root, ".agents", "skills", "issue-spec-github", "SKILL.md"))
 	for _, want := range []string{
-		"name: github",
+		"name: issue-spec-github",
+		"compatibility: Requires GitHub CLI (gh).",
 		"gh auth login",
 		"gh pr checks",
 		"issue-spec owns the proposal, design, implement",
@@ -59,6 +60,9 @@ func TestWriteWorkflowArtifactsUsesCurrentCodexSkillPath(t *testing.T) {
 		if !strings.Contains(githubSkill, want) {
 			t.Fatalf("github skill missing %q:\n%s", want, githubSkill)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "github", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("generic github skill should not be generated, err=%v", err)
 	}
 
 	claudeCommand := readTestFile(t, filepath.Join(root, ".claude", "commands", "issue-spec", "propose.md"))
