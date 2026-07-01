@@ -69,11 +69,19 @@ Use this skill for issue-native OpenSpec work. Active change artifacts live in G
 
 ## Start
 
-1. Run issue-spec auth status --json and confirm the active token source.
+1. Run issue-spec auth status --json and confirm the active auth source and GitHub backend.
 2. Run issue-spec status --repo {{repo}} --proposal <issue> --design <issue> --implement <issue> --json when issues already exist.
 3. For new work, create proposal, design, and implement issues with issue-spec issue create and pass --body-file with concrete markdown content.
 4. When an issue body changes, update it in place with issue-spec issue update --body-file and include --summary for the human-readable audit trail.
 5. Store requirements, tasks, process ownership, review, and verify evidence as typed comments.
+
+## GitHub Backend
+
+- Local agents may rely on native GitHub CLI support: when no ISSUE_SPEC_TOKEN, GH_TOKEN, GITHUB_TOKEN, keyring token, or issue-spec config token is present and gh auth status --active succeeds for the target host, issue-spec auto-selects the gh backend.
+- Explicit env or stored issue-spec tokens keep the rest backend under auto selection. Set ISSUE_SPEC_GITHUB_BACKEND=rest or ISSUE_SPEC_GITHUB_BACKEND=gh only when a workflow needs deterministic backend selection.
+- The gh backend proxies GitHub API operations through gh api and uses gh --hostname for Enterprise hosts. It does not replace local git commands.
+- ISSUE_SPEC_API_URL applies to the rest backend. Forced gh mode should be used only with hosts that gh can address.
+- Use ISSUE_SPEC_TOKEN="$(gh auth token)" only for older issue-spec versions or when deliberately forcing rest while sourcing the token from gh.
 
 ## Rules
 
@@ -144,14 +152,15 @@ Use when the user asks for /issue-spec:apply, issue-spec apply, or implementing 
 ## Steps
 
 1. Read proposal/design/implement issue context and list typed comments with issue-spec comment list --json.
-2. Create or update PROCESS comments with owner agent, scope, dependencies, write ownership, and status.
-3. Split non-trivial work into independent worker PROCESS nodes when file/module ownership does not overlap; execute independent workers in parallel when available.
-4. Add dedicated review PROCESS nodes for non-trivial changes. Review PROCESS nodes should own review scopes such as CLI/API behavior, workflow docs, tests, compatibility, or security-sensitive surfaces.
-5. Link each PROCESS to its TASK comments with issue-spec link.
-6. Implement the code changes for one PROCESS scope at a time, or integrate completed worker outputs by dependency order.
-7. Link every worker and review PROCESS to the PR with issue-spec pr link-process.
-8. Add PR rationale comments on key changed lines with issue-spec pr rationale, each linked to a SPEC comment.
-9. Mark PROCESS comments done only after implementation/review work and focused verification evidence exist.
+2. Confirm issue-spec auth status --json includes the expected GitHub backend. Local gh-authenticated sessions can use the native gh backend; keep ISSUE_SPEC_TOKEN="$(gh auth token)" only as an older-version or forced-rest compatibility path.
+3. Create or update PROCESS comments with owner agent, scope, dependencies, write ownership, and status.
+4. Split non-trivial work into independent worker PROCESS nodes when file/module ownership does not overlap; execute independent workers in parallel when available.
+5. Add dedicated review PROCESS nodes for non-trivial changes. Review PROCESS nodes should own review scopes such as CLI/API behavior, workflow docs, tests, compatibility, or security-sensitive surfaces.
+6. Link each PROCESS to its TASK comments with issue-spec link.
+7. Implement the code changes for one PROCESS scope at a time, or integrate completed worker outputs by dependency order.
+8. Link every worker and review PROCESS to the PR with issue-spec pr link-process.
+9. Add PR rationale comments on key changed lines with issue-spec pr rationale, each linked to a SPEC comment.
+10. Mark PROCESS comments done only after implementation/review work and focused verification evidence exist.
 
 ## Coordinator DAG Execution
 

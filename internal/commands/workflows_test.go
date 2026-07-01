@@ -38,6 +38,17 @@ func TestWriteWorkflowArtifactsUsesCurrentCodexSkillPath(t *testing.T) {
 		}
 	}
 
+	workflowSkill := readTestFile(t, filepath.Join(root, ".agents", "skills", "issue-spec-workflow", "SKILL.md"))
+	for _, want := range []string{
+		"native GitHub CLI support",
+		"ISSUE_SPEC_GITHUB_BACKEND=gh",
+		`ISSUE_SPEC_TOKEN="$(gh auth token)"`,
+	} {
+		if !strings.Contains(workflowSkill, want) {
+			t.Fatalf("workflow skill missing %q:\n%s", want, workflowSkill)
+		}
+	}
+
 	claudeCommand := readTestFile(t, filepath.Join(root, ".claude", "commands", "issue-spec", "propose.md"))
 	for _, want := range []string{
 		`name: "Issue Spec: Propose"`,

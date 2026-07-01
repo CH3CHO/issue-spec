@@ -39,18 +39,18 @@ func (a *app) runAuthStatus(ctx context.Context, args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	token, err := auth.ResolveToken(ctx, *host)
+	client, token, err := a.clientFor(ctx, *host)
 	if err != nil {
 		if *jsonOut {
-			return a.outputJSON(map[string]any{"ok": false, "host": auth.NormalizeHost(*host), "error": err.Error()})
+			return a.outputJSON(authErrorResult(token, err))
 		}
 		a.errorf("not authenticated for %s: %v\n", auth.NormalizeHost(*host), err)
 		return 1
 	}
-	user, scopes, err := github.NewClient(token.Host, token.Value).GetUser(ctx)
+	user, scopes, err := client.GetUser(ctx)
 	if err != nil {
 		if *jsonOut {
-			return a.outputJSON(map[string]any{"ok": false, "host": token.Host, "source": token.Source, "error": err.Error()})
+			return a.outputJSON(authErrorResult(token, err))
 		}
 		a.errorf("validate token for %s from %s: %v\n", token.Host, token.Source, err)
 		return 1
@@ -58,9 +58,12 @@ func (a *app) runAuthStatus(ctx context.Context, args []string) int {
 	token.User = user.Login
 	token.Scopes = scopes
 	if *jsonOut {
-		return a.outputJSON(map[string]any{"ok": true, "auth": token})
+		return a.outputJSON(map[string]any{"ok": true, "auth": token, "backend": token.Backend})
 	}
 	fmt.Fprintf(a.out, "github host: %s\nuser: %s\ntoken source: %s\n", token.Host, token.User, token.Source)
+	if token.Backend != nil {
+		fmt.Fprintf(a.out, "github backend: %s (%s)\n", token.Backend.Name, token.Backend.SelectionSource)
+	}
 	if len(token.Scopes) > 0 {
 		fmt.Fprintf(a.out, "scopes: %s\n", strings.Join(token.Scopes, ", "))
 	}
@@ -146,8 +149,12 @@ func (a *app) runAuthToken(ctx context.Context, args []string) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	token, err := auth.ResolveToken(ctx, *host)
+	selection, err := a.selectBackend(ctx, *host)
 	if err != nil {
+		token := selection.TokenWithDiagnostics()
+		if *jsonOut {
+			return a.outputJSON(authErrorResult(token, err))
+		}
 		if errors.Is(err, auth.ErrNoToken) {
 			a.errorf("not authenticated for %s\n", auth.NormalizeHost(*host))
 		} else {
@@ -155,19 +162,44 @@ func (a *app) runAuthToken(ctx context.Context, args []string) int {
 		}
 		return 1
 	}
-	if *jsonOut {
-		out := map[string]any{"host": token.Host, "source": token.Source}
-		if *includeToken {
-			out["token"] = token.Value
-		}
-		return a.outputJSON(out)
-	}
-	if !*plain {
+	token := selection.TokenWithDiagnostics()
+	if !*plain && !*jsonOut {
 		a.errorf("refusing to print token without --plain\n")
 		return 2
 	}
-	fmt.Fprintln(a.out, token.Value)
+	if *jsonOut {
+		out := map[string]any{"host": token.Host, "source": token.Source, "backend": token.Backend}
+		if *includeToken {
+			tokenValue, err := a.tokenForSelection(ctx, selection)
+			if err != nil {
+				return a.outputJSON(authErrorResult(token, err))
+			}
+			out["token"] = tokenValue
+		}
+		return a.outputJSON(out)
+	}
+	tokenValue, err := a.tokenForSelection(ctx, selection)
+	if err != nil {
+		a.errorf("resolve token: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(a.out, tokenValue)
 	return 0
 }
 
 var _ = flag.ContinueOnError
+
+func authErrorResult(token auth.Token, err error) map[string]any {
+	result := map[string]any{
+		"ok":    false,
+		"host":  token.Host,
+		"error": err.Error(),
+	}
+	if token.Source != "" {
+		result["source"] = token.Source
+	}
+	if token.Backend != nil {
+		result["backend"] = token.Backend
+	}
+	return result
+}

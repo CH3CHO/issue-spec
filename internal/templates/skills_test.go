@@ -25,3 +25,43 @@ func TestIssueSpecSkillAndCommandTemplates(t *testing.T) {
 		t.Fatalf("command body missing repo-specific issue-spec usage:\n%s", commands[0].Body)
 	}
 }
+
+func TestIssueSpecSkillTemplatesDocumentGitHubBackendGuidance(t *testing.T) {
+	skills := IssueSpecSkills("owner/repo")
+	workflow := skillContent(t, skills, "issue-spec-workflow")
+	for _, want := range []string{
+		"native GitHub CLI support",
+		"gh auth status --active",
+		"ISSUE_SPEC_GITHUB_BACKEND=rest",
+		"ISSUE_SPEC_GITHUB_BACKEND=gh",
+		`ISSUE_SPEC_TOKEN="$(gh auth token)"`,
+		"ISSUE_SPEC_API_URL applies to the rest backend",
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("workflow skill missing %q:\n%s", want, workflow)
+		}
+	}
+
+	apply := skillContent(t, skills, "issue-spec-apply")
+	for _, want := range []string{
+		"expected GitHub backend",
+		"native gh backend",
+		`ISSUE_SPEC_TOKEN="$(gh auth token)"`,
+		"forced-rest compatibility path",
+	} {
+		if !strings.Contains(apply, want) {
+			t.Fatalf("apply skill missing %q:\n%s", want, apply)
+		}
+	}
+}
+
+func skillContent(t *testing.T, skills []RenderedSkill, name string) string {
+	t.Helper()
+	for _, skill := range skills {
+		if skill.Name == name {
+			return skill.Content
+		}
+	}
+	t.Fatalf("skill %q not found", name)
+	return ""
+}

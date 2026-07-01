@@ -70,11 +70,14 @@ func (a *app) runInit(ctx context.Context, args []string) int {
 		return 1
 	}
 
-	result := map[string]any{"ok": true, "repo": *repoFlag, "hostname": token.Host, "auth": token, "config": configPath, "labels": labels, "workflows": workflows}
+	result := map[string]any{"ok": true, "repo": *repoFlag, "hostname": token.Host, "auth": token, "backend": token.Backend, "config": configPath, "labels": labels, "workflows": workflows}
 	if *jsonOut {
 		return a.outputJSON(result)
 	}
 	fmt.Fprintf(a.out, "initialized issue-spec for %s on %s\nconfig: %s\nauthenticated as: %s (%s)\n", *repoFlag, token.Host, configPath, token.User, token.Source)
+	if token.Backend != nil {
+		fmt.Fprintf(a.out, "github backend: %s (%s)\n", token.Backend.Name, token.Backend.SelectionSource)
+	}
 	for _, label := range labels {
 		if label.Created {
 			fmt.Fprintf(a.out, "created label: %s\n", label.Name)

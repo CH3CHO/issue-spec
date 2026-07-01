@@ -155,6 +155,10 @@ func NewClientWithBaseURL(host, baseURL, token string, httpClient *http.Client) 
 	return &Client{Host: normalizeHost(host), BaseURL: strings.TrimRight(baseURL, "/"), Token: token, HTTPClient: httpClient}
 }
 
+func (c *Client) BackendInfo() BackendInfo {
+	return BackendInfo{Name: "rest", Kind: "rest", Host: c.Host}
+}
+
 func (c *Client) GetUser(ctx context.Context) (User, []string, error) {
 	var user User
 	resp, err := c.do(ctx, http.MethodGet, "/user", nil, &user)

@@ -13,25 +13,192 @@ import (
 )
 
 const (
-	serviceName = "issue-spec"
+	serviceName            = "issue-spec"
+	GitHubBackendEnv       = "ISSUE_SPEC_GITHUB_BACKEND"
+	GitHubBackendAPIURLEnv = "ISSUE_SPEC_API_URL"
+	GitHubBackendNameREST  = "rest"
+	GitHubBackendNameGH    = "gh"
+	GitHubBackendKindREST  = "rest"
+	GitHubBackendKindCLI   = "external-cli"
+	GitHubBackendModeAuto  = GitHubBackendMode("auto")
+	GitHubBackendModeREST  = GitHubBackendMode("rest")
+	GitHubBackendModeGH    = GitHubBackendMode("gh")
 )
 
 var ErrNoToken = errors.New("no issue-spec token is available")
 
+type GitHubBackendMode string
+
 type Token struct {
-	Value  string   `json:"-"`
-	Source string   `json:"source"`
-	User   string   `json:"user,omitempty"`
-	Scopes []string `json:"scopes,omitempty"`
-	Host   string   `json:"host"`
+	Value   string                    `json:"-"`
+	Source  string                    `json:"source"`
+	User    string                    `json:"user,omitempty"`
+	Scopes  []string                  `json:"scopes,omitempty"`
+	Host    string                    `json:"host"`
+	Backend *GitHubBackendDiagnostics `json:"backend,omitempty"`
 }
 
 type StoredCredential struct {
 	Token string `json:"token"`
 }
 
+type GitHubBackendDiagnostics struct {
+	Mode            string               `json:"mode"`
+	Name            string               `json:"name,omitempty"`
+	Kind            string               `json:"kind,omitempty"`
+	Host            string               `json:"host"`
+	SelectionSource string               `json:"selection_source,omitempty"`
+	TokenSource     string               `json:"token_source,omitempty"`
+	Probes          []GitHubBackendProbe `json:"probes,omitempty"`
+}
+
+type GitHubBackendProbe struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}
+
+type GitHubBackendSelection struct {
+	Mode            GitHubBackendMode
+	Name            string
+	Kind            string
+	Host            string
+	SelectionSource string
+	TokenSource     string
+	Probes          []GitHubBackendProbe
+	Token           Token
+}
+
+type GitHubBackendSelectionOptions struct {
+	GHAuthenticated func(context.Context, string) error
+}
+
 type credentialFile struct {
 	Hosts map[string]StoredCredential `json:"hosts"`
+}
+
+func ParseGitHubBackendMode(value string) (GitHubBackendMode, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return GitHubBackendModeAuto, nil
+	}
+	switch GitHubBackendMode(value) {
+	case GitHubBackendModeAuto, GitHubBackendModeREST, GitHubBackendModeGH:
+		return GitHubBackendMode(value), nil
+	default:
+		return "", fmt.Errorf("invalid %s %q (want auto, rest, or gh)", GitHubBackendEnv, value)
+	}
+}
+
+func GitHubBackendModeFromEnv() (GitHubBackendMode, error) {
+	return ParseGitHubBackendMode(os.Getenv(GitHubBackendEnv))
+}
+
+func SelectGitHubBackend(ctx context.Context, host string) (GitHubBackendSelection, error) {
+	return SelectGitHubBackendWithOptions(ctx, host, GitHubBackendSelectionOptions{})
+}
+
+func SelectGitHubBackendWithOptions(ctx context.Context, host string, opts GitHubBackendSelectionOptions) (GitHubBackendSelection, error) {
+	host = NormalizeHost(host)
+	mode, err := GitHubBackendModeFromEnv()
+	selection := GitHubBackendSelection{Mode: mode, Host: host}
+	if err != nil {
+		return selection, err
+	}
+
+	if mode == GitHubBackendModeGH {
+		selection = selectGHBackend(mode, host, "override:gh")
+		if customAPIURLActive() {
+			return selection, fmt.Errorf("%s is only supported by the rest GitHub backend; unset it or use %s=rest", GitHubBackendAPIURLEnv, GitHubBackendEnv)
+		}
+		return selection, nil
+	}
+
+	token, err := ResolveToken(ctx, host)
+	if err == nil {
+		source := "auto:token"
+		if mode == GitHubBackendModeREST {
+			source = "override:rest"
+		}
+		return selectRESTBackend(mode, host, source, token), nil
+	}
+	if !errors.Is(err, ErrNoToken) {
+		return selection, err
+	}
+
+	selection.Token = Token{Host: host}
+	if mode == GitHubBackendModeREST {
+		selection = selectRESTBackend(mode, host, "override:rest", Token{Host: host})
+		selection.Probes = append(selection.Probes, GitHubBackendProbe{Name: GitHubBackendNameREST, Status: "unavailable", Error: ErrNoToken.Error()})
+		return selection, fmt.Errorf("rest GitHub backend selected but %w", err)
+	}
+
+	selection.Probes = append(selection.Probes, GitHubBackendProbe{Name: GitHubBackendNameREST, Status: "unavailable", Error: ErrNoToken.Error()})
+	if customAPIURLActive() {
+		return selection, fmt.Errorf("%w; %s requires a rest token because the gh backend cannot use custom API URLs", err, GitHubBackendAPIURLEnv)
+	}
+	if opts.GHAuthenticated == nil {
+		selection.Probes = append(selection.Probes, GitHubBackendProbe{Name: GitHubBackendNameGH, Status: "not_configured", Error: "gh authentication probe is not configured"})
+		return selection, fmt.Errorf("%w; gh authentication probe is not configured", err)
+	}
+	if probeErr := opts.GHAuthenticated(ctx, host); probeErr != nil {
+		selection.Probes = append(selection.Probes, GitHubBackendProbe{Name: GitHubBackendNameGH, Status: "unavailable", Error: probeErr.Error()})
+		return selection, fmt.Errorf("%w; gh authentication probe failed for %s: %v", err, host, probeErr)
+	}
+	return selectGHBackend(mode, host, "auto:gh"), nil
+}
+
+func (s GitHubBackendSelection) Diagnostics() GitHubBackendDiagnostics {
+	return GitHubBackendDiagnostics{
+		Mode:            string(s.Mode),
+		Name:            s.Name,
+		Kind:            s.Kind,
+		Host:            s.Host,
+		SelectionSource: s.SelectionSource,
+		TokenSource:     s.TokenSource,
+		Probes:          s.Probes,
+	}
+}
+
+func (s GitHubBackendSelection) TokenWithDiagnostics() Token {
+	token := s.Token
+	if token.Host == "" {
+		token.Host = s.Host
+	}
+	if token.Source == "" && s.Name == GitHubBackendNameGH {
+		token.Source = "gh"
+	}
+	diagnostics := s.Diagnostics()
+	token.Backend = &diagnostics
+	return token
+}
+
+func selectRESTBackend(mode GitHubBackendMode, host, selectionSource string, token Token) GitHubBackendSelection {
+	token.Host = host
+	return GitHubBackendSelection{
+		Mode:            mode,
+		Name:            GitHubBackendNameREST,
+		Kind:            GitHubBackendKindREST,
+		Host:            host,
+		SelectionSource: selectionSource,
+		TokenSource:     token.Source,
+		Token:           token,
+	}
+}
+
+func selectGHBackend(mode GitHubBackendMode, host, selectionSource string) GitHubBackendSelection {
+	return GitHubBackendSelection{
+		Mode:            mode,
+		Name:            GitHubBackendNameGH,
+		Kind:            GitHubBackendKindCLI,
+		Host:            host,
+		SelectionSource: selectionSource,
+		Token:           Token{Source: "gh", Host: host},
+	}
+}
+
+func customAPIURLActive() bool {
+	return strings.TrimSpace(os.Getenv(GitHubBackendAPIURLEnv)) != ""
 }
 
 func ResolveToken(_ context.Context, host string) (Token, error) {
