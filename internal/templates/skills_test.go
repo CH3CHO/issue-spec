@@ -7,7 +7,7 @@ import (
 
 func TestIssueSpecSkillAndCommandTemplates(t *testing.T) {
 	skills := IssueSpecSkills("owner/repo")
-	if got, want := len(skills), 6; got != want {
+	if got, want := len(skills), 7; got != want {
 		t.Fatalf("skills = %d, want %d", got, want)
 	}
 	if !strings.Contains(skills[0].Content, `generatedBy: "issue-spec"`) {
@@ -24,4 +24,74 @@ func TestIssueSpecSkillAndCommandTemplates(t *testing.T) {
 	if !strings.Contains(commands[0].Body, "issue-spec issue create proposal --repo owner/repo") {
 		t.Fatalf("command body missing repo-specific issue-spec usage:\n%s", commands[0].Body)
 	}
+}
+
+func TestIssueSpecSkillsIncludeGitHubCLISupportSkill(t *testing.T) {
+	skills := IssueSpecSkills("owner/repo")
+	if hasSkill(skills, "github") {
+		t.Fatal("generic github skill should not be generated")
+	}
+	github := skillContent(t, skills, "issue-spec-github")
+	for _, want := range []string{
+		"name: issue-spec-github",
+		"compatibility: Requires GitHub CLI (gh).",
+		"Use GitHub CLI for GitHub issues",
+		"gh auth login",
+		"gh pr checks",
+		"gh api",
+		"issue-spec owns the proposal, design, implement",
+	} {
+		if !strings.Contains(github, want) {
+			t.Fatalf("github skill missing %q:\n%s", want, github)
+		}
+	}
+}
+
+func TestIssueSpecSkillTemplatesDocumentGitHubBackendGuidance(t *testing.T) {
+	skills := IssueSpecSkills("owner/repo")
+	workflow := skillContent(t, skills, "issue-spec-workflow")
+	for _, want := range []string{
+		"native GitHub CLI support",
+		"gh auth status --active",
+		"ISSUE_SPEC_GITHUB_BACKEND=rest",
+		"ISSUE_SPEC_GITHUB_BACKEND=gh",
+		`ISSUE_SPEC_TOKEN="$(gh auth token)"`,
+		"ISSUE_SPEC_API_URL applies to the rest backend",
+	} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("workflow skill missing %q:\n%s", want, workflow)
+		}
+	}
+
+	apply := skillContent(t, skills, "issue-spec-apply")
+	for _, want := range []string{
+		"expected GitHub backend",
+		"native gh backend",
+		`ISSUE_SPEC_TOKEN="$(gh auth token)"`,
+		"forced-rest compatibility path",
+	} {
+		if !strings.Contains(apply, want) {
+			t.Fatalf("apply skill missing %q:\n%s", want, apply)
+		}
+	}
+}
+
+func skillContent(t *testing.T, skills []RenderedSkill, name string) string {
+	t.Helper()
+	for _, skill := range skills {
+		if skill.Name == name {
+			return skill.Content
+		}
+	}
+	t.Fatalf("skill %q not found", name)
+	return ""
+}
+
+func hasSkill(skills []RenderedSkill, name string) bool {
+	for _, skill := range skills {
+		if skill.Name == name {
+			return true
+		}
+	}
+	return false
 }

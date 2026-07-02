@@ -31,10 +31,11 @@ type CommandContent struct {
 
 func IssueSpecSkills(repo string) []RenderedSkill {
 	workflows := issueSpecWorkflows(repo)
-	out := make([]RenderedSkill, 0, len(workflows))
+	out := make([]RenderedSkill, 0, len(workflows)+1)
 	for _, tmpl := range workflows {
 		out = append(out, RenderedSkill{Name: tmpl.Name, Content: renderSkill(tmpl.Name, tmpl.Description, tmpl.Body)})
 	}
+	out = append(out, githubCLISkill())
 	return out
 }
 
@@ -69,11 +70,19 @@ Use this skill for issue-native OpenSpec work. Active change artifacts live in G
 
 ## Start
 
-1. Run issue-spec auth status --json and confirm the active token source.
+1. Run issue-spec auth status --json and confirm the active auth source and GitHub backend.
 2. Run issue-spec status --repo {{repo}} --proposal <issue> --design <issue> --implement <issue> --json when issues already exist.
 3. For new work, create proposal, design, and implement issues with issue-spec issue create and pass --body-file with concrete markdown content.
 4. When an issue body changes, update it in place with issue-spec issue update --body-file and include --summary for the human-readable audit trail.
 5. Store requirements, tasks, process ownership, review, and verify evidence as typed comments.
+
+## GitHub Backend
+
+- Local agents may rely on native GitHub CLI support: when no ISSUE_SPEC_TOKEN, GH_TOKEN, GITHUB_TOKEN, keyring token, or issue-spec config token is present and gh auth status --active succeeds for the target host, issue-spec auto-selects the gh backend.
+- Explicit env or stored issue-spec tokens keep the rest backend under auto selection. Set ISSUE_SPEC_GITHUB_BACKEND=rest or ISSUE_SPEC_GITHUB_BACKEND=gh only when a workflow needs deterministic backend selection.
+- The gh backend proxies GitHub API operations through gh api and uses gh --hostname for Enterprise hosts. It does not replace local git commands.
+- ISSUE_SPEC_API_URL applies to the rest backend. Forced gh mode should be used only with hosts that gh can address.
+- Use ISSUE_SPEC_TOKEN="$(gh auth token)" only for older issue-spec versions or when deliberately forcing rest while sourcing the token from gh.
 
 ## Rules
 
@@ -144,14 +153,15 @@ Use when the user asks for /issue-spec:apply, issue-spec apply, or implementing 
 ## Steps
 
 1. Read proposal/design/implement issue context and list typed comments with issue-spec comment list --json.
-2. Create or update PROCESS comments with owner agent, scope, dependencies, write ownership, and status.
-3. Split non-trivial work into independent worker PROCESS nodes when file/module ownership does not overlap; execute independent workers in parallel when available.
-4. Add dedicated review PROCESS nodes for non-trivial changes. Review PROCESS nodes should own review scopes such as CLI/API behavior, workflow docs, tests, compatibility, or security-sensitive surfaces.
-5. Link each PROCESS to its TASK comments with issue-spec link.
-6. Implement the code changes for one PROCESS scope at a time, or integrate completed worker outputs by dependency order.
-7. Link every worker and review PROCESS to the PR with issue-spec pr link-process.
-8. Add PR rationale comments on key changed lines with issue-spec pr rationale, each linked to a SPEC comment.
-9. Mark PROCESS comments done only after implementation/review work and focused verification evidence exist.
+2. Confirm issue-spec auth status --json includes the expected GitHub backend. Local gh-authenticated sessions can use the native gh backend; keep ISSUE_SPEC_TOKEN="$(gh auth token)" only as an older-version or forced-rest compatibility path.
+3. Create or update PROCESS comments with owner agent, scope, dependencies, write ownership, and status.
+4. Split non-trivial work into independent worker PROCESS nodes when file/module ownership does not overlap; execute independent workers in parallel when available.
+5. Add dedicated review PROCESS nodes for non-trivial changes. Review PROCESS nodes should own review scopes such as CLI/API behavior, workflow docs, tests, compatibility, or security-sensitive surfaces.
+6. Link each PROCESS to its TASK comments with issue-spec link.
+7. Implement the code changes for one PROCESS scope at a time, or integrate completed worker outputs by dependency order.
+8. Link every worker and review PROCESS to the PR with issue-spec pr link-process.
+9. Add PR rationale comments on key changed lines with issue-spec pr rationale, each linked to a SPEC comment.
+10. Mark PROCESS comments done only after implementation/review work and focused verification evidence exist.
 
 ## Coordinator DAG Execution
 
@@ -243,16 +253,74 @@ Use when the user asks for /issue-spec:archive, issue-spec archive, or creating 
 }
 
 func renderSkill(name, description, body string) string {
+	return renderSkillWithCompatibility(name, description, "Requires issue-spec CLI.", body)
+}
+
+func renderSkillWithCompatibility(name, description, compatibility, body string) string {
 	return fmt.Sprintf(`---
 name: %s
 description: %s
 license: MIT
-compatibility: Requires issue-spec CLI.
+compatibility: %s
 metadata:
   author: issue-spec
   version: "1.0"
   generatedBy: "%s"
 ---
 
-%s`, name, description, IssueSpecGeneratedBy, strings.TrimSpace(body)+"\n")
+%s`, name, description, compatibility, IssueSpecGeneratedBy, strings.TrimSpace(body)+"\n")
+}
+
+func githubCLISkill() RenderedSkill {
+	const name = "issue-spec-github"
+	const description = "Use GitHub CLI for GitHub issues, pull requests, CI runs, and API queries that issue-spec does not wrap."
+	const body = `# GitHub CLI
+
+Use the ` + "`gh`" + ` CLI to interact with GitHub repositories, issues, pull requests, CI, and API endpoints.
+
+## When To Use
+
+- Checking PR status, reviews, mergeability, or CI checks.
+- Creating, viewing, updating, closing, or commenting on GitHub issues.
+- Listing or inspecting pull requests, workflow runs, releases, labels, or repository metadata.
+- Calling GitHub API endpoints with ` + "`gh api`" + ` when issue-spec does not provide a dedicated command.
+
+## When Not To Use
+
+- Local git operations such as commit, branch, fetch, merge, or push. Use ` + "`git`" + ` directly.
+- Non-GitHub repositories. Use the matching provider CLI instead.
+- Complex code review across local diffs. Read the repository files directly and use issue-spec review commands for traceable findings.
+
+## Setup
+
+` + "```bash" + `
+gh auth login
+gh auth status
+` + "```" + `
+
+## Common Commands
+
+` + "```bash" + `
+gh issue list --repo owner/repo --state open
+gh issue view 42 --repo owner/repo --json number,title,state,url,body
+gh issue comment 42 --repo owner/repo --body "Comment body"
+
+gh pr list --repo owner/repo
+gh pr view 17 --repo owner/repo --json number,title,state,headRefName,baseRefName,url
+gh pr checks 17 --repo owner/repo
+
+gh run list --repo owner/repo --limit 10
+gh run view <run-id> --repo owner/repo --log-failed
+
+gh api repos/owner/repo/labels --jq '.[].name'
+` + "```" + `
+
+## Notes
+
+- Always pass ` + "`--repo owner/repo`" + ` when the current directory is not definitely inside the target repository.
+- Use GitHub URLs directly when convenient, for example ` + "`gh pr view https://github.com/owner/repo/pull/17`" + `.
+- Prefer structured output with ` + "`--json`" + ` and ` + "`--jq`" + ` when another command or agent step consumes the result.
+- issue-spec owns the proposal, design, implement, typed comment, review, verify, and archive workflow state. Use ` + "`gh`" + ` for adjacent GitHub operations that are outside issue-spec's command surface.
+`
+	return RenderedSkill{Name: name, Content: renderSkillWithCompatibility(name, description, "Requires GitHub CLI (gh).", body)}
 }

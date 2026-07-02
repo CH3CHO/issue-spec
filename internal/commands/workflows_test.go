@@ -16,7 +16,7 @@ func TestWriteWorkflowArtifactsUsesCurrentCodexSkillPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := len(result.SkillFiles), 12; got != want {
+	if got, want := len(result.SkillFiles), 14; got != want {
 		t.Fatalf("skill file count = %d, want %d", got, want)
 	}
 	if got, want := len(result.CommandFiles), 10; got != want {
@@ -36,6 +36,33 @@ func TestWriteWorkflowArtifactsUsesCurrentCodexSkillPath(t *testing.T) {
 		if !strings.Contains(codexSkill, want) {
 			t.Fatalf("codex skill missing %q:\n%s", want, codexSkill)
 		}
+	}
+
+	workflowSkill := readTestFile(t, filepath.Join(root, ".agents", "skills", "issue-spec-workflow", "SKILL.md"))
+	for _, want := range []string{
+		"native GitHub CLI support",
+		"ISSUE_SPEC_GITHUB_BACKEND=gh",
+		`ISSUE_SPEC_TOKEN="$(gh auth token)"`,
+	} {
+		if !strings.Contains(workflowSkill, want) {
+			t.Fatalf("workflow skill missing %q:\n%s", want, workflowSkill)
+		}
+	}
+
+	githubSkill := readTestFile(t, filepath.Join(root, ".agents", "skills", "issue-spec-github", "SKILL.md"))
+	for _, want := range []string{
+		"name: issue-spec-github",
+		"compatibility: Requires GitHub CLI (gh).",
+		"gh auth login",
+		"gh pr checks",
+		"issue-spec owns the proposal, design, implement",
+	} {
+		if !strings.Contains(githubSkill, want) {
+			t.Fatalf("github skill missing %q:\n%s", want, githubSkill)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "github", "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("generic github skill should not be generated, err=%v", err)
 	}
 
 	claudeCommand := readTestFile(t, filepath.Join(root, ".claude", "commands", "issue-spec", "propose.md"))

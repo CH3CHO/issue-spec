@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 
@@ -20,12 +21,16 @@ type app struct {
 	in  io.Reader
 	out io.Writer
 	err io.Writer
+
+	selectGitHubBackend func(context.Context, string) (auth.GitHubBackendSelection, error)
+	newGitHubBackend    func(context.Context, auth.GitHubBackendSelection) (github.Backend, error)
+	gitHubBackendToken  func(context.Context, auth.GitHubBackendSelection) (string, error)
 }
 
 type commandFunc func(context.Context, []string) int
 
 func Execute(args []string, in io.Reader, out io.Writer, errOut io.Writer) int {
-	a := &app{in: in, out: out, err: errOut}
+	a := newApp(in, out, errOut)
 	ctx := context.Background()
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" {
 		a.printUsage()
@@ -63,6 +68,27 @@ func Execute(args []string, in io.Reader, out io.Writer, errOut io.Writer) int {
 	}
 }
 
+func newApp(in io.Reader, out io.Writer, errOut io.Writer) *app {
+	return &app{
+		in:                  in,
+		out:                 out,
+		err:                 errOut,
+		selectGitHubBackend: defaultSelectGitHubBackend,
+		newGitHubBackend:    defaultNewGitHubBackend,
+		gitHubBackendToken:  defaultGitHubBackendToken,
+	}
+}
+
+var ghAuthenticated = github.GHAuthenticated
+var ghAuthToken = github.GHAuthToken
+var ghLookPath = exec.LookPath
+
+func defaultSelectGitHubBackend(ctx context.Context, host string) (auth.GitHubBackendSelection, error) {
+	return auth.SelectGitHubBackendWithOptions(ctx, host, auth.GitHubBackendSelectionOptions{
+		GHAuthenticated: ghAuthenticated,
+	})
+}
+
 func (a *app) printUsage() {
 	fmt.Fprintln(a.out, `issue-spec manages issue-native OpenSpec artifacts.
 
@@ -93,13 +119,85 @@ func newFlagSet(name string, errOut io.Writer) *flag.FlagSet {
 	return fs
 }
 
-func (a *app) clientFor(ctx context.Context, host string) (*github.Client, auth.Token, error) {
+func (a *app) clientFor(ctx context.Context, host string) (github.Backend, auth.Token, error) {
 	host = auth.NormalizeHost(host)
-	token, err := auth.ResolveToken(ctx, host)
+	selection, err := a.selectBackend(ctx, host)
 	if err != nil {
-		return nil, auth.Token{Host: host}, err
+		return nil, selection.TokenWithDiagnostics(), err
 	}
-	return github.NewClient(host, token.Value), token, nil
+	backend, err := a.backendForSelection(ctx, selection)
+	if err != nil {
+		return nil, selection.TokenWithDiagnostics(), err
+	}
+	token := selection.TokenWithDiagnostics()
+	if info := backend.BackendInfo(); info.Name != "" {
+		token.Backend.Name = info.Name
+		token.Backend.Kind = info.Kind
+		token.Backend.Host = info.Host
+	}
+	return backend, token, nil
+}
+
+func (a *app) selectBackend(ctx context.Context, host string) (auth.GitHubBackendSelection, error) {
+	if a.selectGitHubBackend != nil {
+		return a.selectGitHubBackend(ctx, host)
+	}
+	return defaultSelectGitHubBackend(ctx, host)
+}
+
+func (a *app) backendForSelection(ctx context.Context, selection auth.GitHubBackendSelection) (github.Backend, error) {
+	if a.newGitHubBackend != nil {
+		return a.newGitHubBackend(ctx, selection)
+	}
+	return defaultNewGitHubBackend(ctx, selection)
+}
+
+func (a *app) tokenForSelection(ctx context.Context, selection auth.GitHubBackendSelection) (string, error) {
+	if a.gitHubBackendToken != nil {
+		return a.gitHubBackendToken(ctx, selection)
+	}
+	return defaultGitHubBackendToken(ctx, selection)
+}
+
+func defaultNewGitHubBackend(_ context.Context, selection auth.GitHubBackendSelection) (github.Backend, error) {
+	switch selection.Name {
+	case auth.GitHubBackendNameREST:
+		if strings.TrimSpace(selection.Token.Value) == "" {
+			return nil, fmt.Errorf("rest GitHub backend selected without a token")
+		}
+		return github.NewClient(selection.Host, selection.Token.Value), nil
+	case auth.GitHubBackendNameGH:
+		return github.NewGHBackend(github.GHBackendOptions{
+			Host: selection.Host,
+			CLIOptions: github.GHCLIOptions{
+				Redactor: defaultGHBackendRedactor(selection),
+			},
+		})
+	default:
+		return nil, fmt.Errorf("unsupported GitHub backend %q", selection.Name)
+	}
+}
+
+func defaultGHBackendRedactor(selection auth.GitHubBackendSelection) github.ExternalCLIRedactor {
+	values := []string{selection.Token.Value}
+	for _, envName := range []string{"ISSUE_SPEC_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
+		values = append(values, os.Getenv(envName))
+	}
+	return github.NewExternalCLIRedactor(values...)
+}
+
+func defaultGitHubBackendToken(ctx context.Context, selection auth.GitHubBackendSelection) (string, error) {
+	switch selection.Name {
+	case auth.GitHubBackendNameREST:
+		if strings.TrimSpace(selection.Token.Value) == "" {
+			return "", fmt.Errorf("rest GitHub backend selected without a token")
+		}
+		return selection.Token.Value, nil
+	case auth.GitHubBackendNameGH:
+		return ghAuthToken(ctx, selection.Host)
+	default:
+		return "", fmt.Errorf("unsupported GitHub backend %q", selection.Name)
+	}
 }
 
 func (a *app) validateRepo(repo string) (string, bool) {
@@ -159,7 +257,7 @@ func parseIssueFlag(value string, name string) (int, error) {
 	return issueNumberFlag(value)
 }
 
-func collectArtifacts(ctx context.Context, client *github.Client, repo string, issueNumbers ...int) ([]model.Artifact, error) {
+func collectArtifacts(ctx context.Context, client github.Operations, repo string, issueNumbers ...int) ([]model.Artifact, error) {
 	var artifacts []model.Artifact
 	for _, issueNumber := range issueNumbers {
 		if issueNumber == 0 {
@@ -186,7 +284,7 @@ func collectArtifacts(ctx context.Context, client *github.Client, repo string, i
 	return artifacts, nil
 }
 
-func findArtifactByID(ctx context.Context, client *github.Client, repo string, issueNumber int, id string) (model.Artifact, string, error) {
+func findArtifactByID(ctx context.Context, client github.Operations, repo string, issueNumber int, id string) (model.Artifact, string, error) {
 	comments, err := client.ListIssueComments(ctx, repo, issueNumber)
 	if err != nil {
 		return model.Artifact{}, "", err
@@ -206,7 +304,7 @@ func findArtifactByID(ctx context.Context, client *github.Client, repo string, i
 	return model.Artifact{}, "", fmt.Errorf("typed comment %s not found on issue %d", id, issueNumber)
 }
 
-func upsertTypedComment(ctx context.Context, client *github.Client, repo string, issueNumber int, commentType, id, body string) (string, github.Comment, error) {
+func upsertTypedComment(ctx context.Context, client github.Operations, repo string, issueNumber int, commentType, id, body string) (string, github.Comment, error) {
 	comments, err := client.ListIssueComments(ctx, repo, issueNumber)
 	if err != nil {
 		return "", github.Comment{}, err

@@ -149,6 +149,28 @@ func TestCreateReviewFindingIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestCreateReviewFindingWithGHBackendUsesPatchLines(t *testing.T) {
+	ctx := context.Background()
+	runner := &commandSequenceRunner{results: []github.ExternalCLIResult{
+		{Stdout: []byte(`[{"filename":"internal/foo.go","patch":"@@ -1,2 +1,3 @@\n package foo\n+var X = 1\n"}]`)},
+		{Stdout: []byte(`[]`)},
+		{Stdout: []byte(`{"number":7,"html_url":"https://github.com/o/r/pull/7","head":{"sha":"abc123","ref":"feature"},"base":{"ref":"main"}}`)},
+		{Stdout: []byte(`{"id":100,"html_url":"https://github.com/o/r/pull/7#discussion_r100","body":"created","path":"internal/foo.go","line":2,"commit_id":"abc123"}`)},
+	}}
+	client := newCommandTestGHBackend(t, runner)
+
+	result, err := createReviewFinding(ctx, client, "o/r", 7, "internal/foo.go", 2, "FINDING-001", "P1", "PROCESS-001", "SPEC-001", "https://github.com/o/r/issues/1#issuecomment-1", "Review Agent", "Fix this.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Created || result.CommentID != 100 || result.Severity != "P1" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if got, want := len(runner.commands), 4; got != want {
+		t.Fatalf("gh commands = %d, want %d", got, want)
+	}
+}
+
 func TestReplyReviewFindingIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	client := &fakeReviewClient{

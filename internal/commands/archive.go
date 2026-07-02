@@ -140,7 +140,7 @@ type durableSpecPROptions struct {
 	CommitMessage string
 }
 
-func fetchDurableSpecSources(ctx context.Context, client *github.Client, repo string, proposalIssue int) (github.Issue, []templates.SpecSource, error) {
+func fetchDurableSpecSources(ctx context.Context, client github.Operations, repo string, proposalIssue int) (github.Issue, []templates.SpecSource, error) {
 	issue, err := client.GetIssue(ctx, repo, proposalIssue)
 	if err != nil {
 		return github.Issue{}, nil, fmt.Errorf("read proposal issue #%d: %w", proposalIssue, err)
@@ -164,7 +164,7 @@ func fetchDurableSpecSources(ctx context.Context, client *github.Client, repo st
 	return issue, specs, nil
 }
 
-func (a *app) createDurableSpecPR(ctx context.Context, client *github.Client, repo, proposalURL string, specs []templates.SpecSource, opts durableSpecPROptions) (map[string]any, error) {
+func (a *app) createDurableSpecPR(ctx context.Context, client github.Operations, repo, proposalURL string, specs []templates.SpecSource, opts durableSpecPROptions) (map[string]any, error) {
 	if filepath.IsAbs(opts.OutputPath) {
 		return nil, fmt.Errorf("--output must be repository-relative when --create-pr is set")
 	}
