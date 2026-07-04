@@ -28,6 +28,9 @@ func TestDefaultConfigFromEnvUsesUnifiedIssueSpecHomeDir(t *testing.T) {
 	if cfg.WorkspaceRetention.Duration != 7*24*time.Hour {
 		t.Fatalf("WorkspaceRetention = %s, want 168h", cfg.WorkspaceRetention.Duration)
 	}
+	if cfg.MaxConcurrentJobs != 3 {
+		t.Fatalf("MaxConcurrentJobs = %d, want 3", cfg.MaxConcurrentJobs)
+	}
 }
 
 func TestDefaultConfigFromEnvFallsBackToXDGDirsWhenHomeEmpty(t *testing.T) {
