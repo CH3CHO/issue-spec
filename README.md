@@ -62,25 +62,12 @@ Install the CLI:
 go install github.com/higress-group/issue-spec/cmd/issue-spec@latest
 ```
 
-Authenticate with GitHub. In an interactive terminal, the usual path is to use an existing GitHub CLI login:
+Authenticate with GitHub CLI on the current machine. `issue-spec` reuses that `gh` session for GitHub operations:
 
 ```bash
 gh auth login
+gh auth status
 issue-spec auth status --json
-```
-
-You can also ask issue-spec for the recommended login path:
-
-```bash
-issue-spec auth login
-```
-
-If `gh` is installed and authenticated, issue-spec tells you to reuse that session directly. If `gh` is installed but not authenticated, it points you to `gh auth login` or `gh auth login --hostname <host>` for GitHub Enterprise. If `gh` is not installed, issue-spec explains that the fallback path is REST token login and recommends installing GitHub CLI from https://cli.github.com/ for the full local workflow.
-
-If you need issue-spec to store a REST token directly, use:
-
-```bash
-issue-spec auth login --with-token
 ```
 
 Initialize a repository:
@@ -99,59 +86,105 @@ Then use the generated skills or slash-command style workflows from your agent:
 /issue-spec:archive
 ```
 
-By default, `issue-spec` uses explicit REST tokens when they are present, and otherwise reuses an authenticated `gh` CLI session when available.
+## GitHub Authentication
 
-## GitHub Authentication And Backend Selection
-
-`issue-spec` has two GitHub backends:
-
-- `rest`: direct GitHub REST calls using `ISSUE_SPEC_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, keyring storage, or the issue-spec config credential file.
-- `gh`: GitHub API calls proxied through `gh api`, using the account already authenticated by GitHub CLI.
-
-Backend selection is controlled by `ISSUE_SPEC_GITHUB_BACKEND=auto|rest|gh`. The default is `auto`.
-
-Local terminal state with GitHub CLI already authenticated:
+`issue-spec` expects GitHub CLI to be installed and authenticated on the current machine. It uses the same account and host that `gh auth status` reports:
 
 ```bash
 gh auth status
 issue-spec auth status --json
 ```
 
-When no explicit issue-spec/GitHub token is configured and `gh auth status --active` succeeds for the target host, `auto` selects the `gh` backend. JSON output includes additive backend diagnostics such as `mode`, `name`, `kind`, `host`, `selection_source`, and `token_source` where applicable.
-
-CI and deterministic automation should keep using REST tokens:
+For GitHub Enterprise, log in with GitHub CLI first, then pass the same host to issue-spec commands:
 
 ```bash
-export ISSUE_SPEC_TOKEN=...
-export ISSUE_SPEC_GITHUB_BACKEND=rest
+gh auth login --hostname ghe.example.com
+issue-spec auth status --hostname ghe.example.com --json
+```
+
+`issue-spec auth status`, `init`, and normal workflow commands do not print token values. `issue-spec auth token --plain` prints the current `gh` token only when explicitly requested.
+
+`archive durable-spec --create-pr` still uses local `git` for fetch, worktree, commit, and push. GitHub API reads and PR creation use the same authenticated `gh` account.
+
+## Runner: Comment-Triggered Workflows
+
+`issue-spec runner` can watch repository issue comments and launch a headless acpx coordinator agent when an authorized maintainer comments a command.
+
+Supported command comments:
+
+```text
+/new <prompt>
+/resume <public-session-id> <prompt>
+/cancel <public-session-id>
+```
+
+`/new` creates a fresh public runner session, clones the target repository into a managed workspace, starts acpx from that workspace, and writes a status comment containing the public session id. `/resume` reuses that public session and workspace. Public sessions are repository-scoped and shared by authorized repository maintainers; they are not private user sessions.
+
+Before running the poller, authenticate GitHub and make sure the runner identity watches the repository with issue and PR notifications enabled:
+
+```bash
+gh auth login
 issue-spec auth status --json
+issue-spec runner preflight --repo owner/repo --runner "$(gh api user --jq .login)"
 ```
 
-To force the GitHub CLI backend for a local check:
+Use a dry run to check configuration and intake without creating GitHub comments, changing runner state, creating workspaces, or dispatching acpx:
 
 ```bash
-ISSUE_SPEC_GITHUB_BACKEND=gh issue-spec auth status --json
+issue-spec runner poll \
+  --repo owner/repo \
+  --runner "$(gh api user --jq .login)" \
+  --once \
+  --dry-run \
+  --json
 ```
 
-Enterprise hosts are passed to `gh` with `--hostname`. `ISSUE_SPEC_API_URL` is a REST-backend setting; forced `gh` mode fails when a custom API URL is configured because `gh api` must be able to address the host itself.
-
-`issue-spec auth token --plain` prints a token only when explicitly requested. In `gh` mode it delegates to `gh auth token`; `auth status` and `init` do not print token values.
-
-`issue-spec auth login` without `--with-token` is a login advisor. It does not store a token by itself. It detects the local GitHub CLI state and prints the recommended path: reuse authenticated `gh`, run `gh auth login`, or use REST token fallback with `issue-spec auth login --with-token`.
-
-For older `issue-spec` versions, or when deliberately forcing REST while sourcing the token from `gh`, use the compatibility wrapper:
+Start a real poller:
 
 ```bash
-ISSUE_SPEC_TOKEN="$(gh auth token)" ISSUE_SPEC_GITHUB_BACKEND=rest issue-spec status --repo owner/repo --proposal 1
+issue-spec runner poll \
+  --repo owner/repo \
+  --runner "$(gh api user --jq .login)" \
+  --agent codex
 ```
 
-Compatibility rollout checks:
+Useful runner options:
 
-- `auto` keeps REST as the selected backend whenever an env, keyring, or issue-spec config token is present.
-- `auth status --json`, `auth token --json`, and `init --json` keep their existing fields and add backend diagnostics without printing token values.
-- The `gh` backend uses non-interactive `gh auth status --active`, `gh auth token`, and `gh api` calls; Enterprise hosts are mapped with `--hostname`.
-- `archive durable-spec --create-pr` still uses local `git` for fetch, worktree, commit, and push. The selected GitHub backend is used only for GitHub API reads and PR creation.
-- Live GitHub or real-`gh` smoke tests are optional for local rollout. When they are not run, record the reason with the verification evidence and rely on fake-runner/unit coverage.
+- `--state <path>` stores durable runner state. The default is `~/.issue-spec/runner-state.json`.
+- `--workspace-root <path>` stores managed repository clones. The default is `~/.issue-spec/workspaces`.
+- `--poll-interval` and `--fallback-interval` control notification polling and lower-frequency repository comment fallback.
+- `--max-concurrency <n>` can run independent sessions in parallel. Commands for the same public session are serialized by a workspace/session lock.
+- `--agent codex|claude` selects the coordinator agent through acpx. `--model <name>` passes the configured model/profile to acpx.
+- `--gh-config-dir <path>` selects the host GitHub CLI config directory mirrored into the sandbox. By default the runner derives it from the host GitHub CLI environment.
+- `--allow-cancel=false` disables `/cancel` intake.
+
+On Linux, runner dispatch uses bubblewrap by default to keep coordinator filesystem writes inside the managed workspace while still allowing network access for GitHub, model, and package operations. Install bubblewrap or set `ISSUE_SPEC_BWRAP_PATH` / `--bwrap-path` when it is not on `PATH`. If bubblewrap is unavailable or unsupported, the runner fails preflight instead of silently running without isolation.
+
+Use `--unsafe-no-sandbox` only as an explicit operator choice:
+
+```bash
+issue-spec runner poll --repo owner/repo --runner maintainer --unsafe-no-sandbox
+```
+
+Unsafe mode disables the filesystem boundary and marks status comments and durable state with `sandbox_provider=none` and `fs_boundary=disabled`. Regular issue-spec CLI commands remain cross-platform; the default sandboxed runner dispatch path requires Linux unless unsafe mode is explicitly selected.
+
+For Codex-backed runs, the runner defaults to requiring agent full access so the coordinator can run issue-spec CLI commands, shell commands, tests, and native subagents inside the managed workspace:
+
+```bash
+issue-spec runner poll --repo owner/repo --runner maintainer --agent codex --model gpt-5.5[xhigh]
+```
+
+For Claude Code-backed runs, include the tools needed by the issue-spec workflow:
+
+```bash
+issue-spec runner poll \
+  --repo owner/repo \
+  --runner maintainer \
+  --agent claude \
+  --claude-allowed-tools Task,Bash
+```
+
+The acpx-launched coordinator creates or updates proposal, design, typed-comment, review, verify, and archive artifacts by running existing issue-spec CLI commands inside the sandbox. The outer runner owns authorization, job lifecycle status comments, workspace isolation, restart reconciliation, cancellation state, and bounded provenance writeback.
 
 ## Why issue-spec
 
@@ -259,7 +292,6 @@ If `--tools` is omitted, init detects existing `.agents` or `.claude` directorie
 ```bash
 issue-spec auth status
 issue-spec auth login
-issue-spec auth login --with-token
 issue-spec auth logout
 issue-spec auth token --plain
 
@@ -288,10 +320,14 @@ issue-spec review sync --repo owner/repo --pr 4 --implement 3 --id REVIEW-001
 issue-spec review finding --repo owner/repo --pr 4 --path internal/foo.go --line 42 --id FINDING-001 --severity P1 --process PROCESS-001 --spec SPEC-001 --spec-url https://github.com/owner/repo/issues/1#issuecomment-1 --body "What must be fixed."
 issue-spec review reply --repo owner/repo --pr 4 --comment-id 123456 --finding FINDING-001 --process PROCESS-001 --status resolved --body "Fixed in the latest patch."
 
-issue-spec verify --repo owner/repo --proposal 1 --design 2 --implement 3 --pr 4 --durable-spec openspec/specs/issue-spec-cli/spec.md
+issue-spec verify --repo owner/repo --proposal 1 --design 2 --implement 3 --pr 4 --durable-spec issue-spec/specs/issue-spec-cli/spec.md
 
 issue-spec archive durable-spec --repo owner/repo --proposal 1 --capability issue-spec-cli
 issue-spec archive durable-spec --repo owner/repo --proposal 1 --capability issue-spec-cli --create-pr --branch issue-spec/durable-spec-issue-spec-cli
+
+issue-spec runner preflight --repo owner/repo --runner login
+issue-spec runner poll --repo owner/repo --runner login --once --dry-run
+issue-spec runner poll --repo owner/repo --runner login --agent codex
 ```
 
 ## Development
