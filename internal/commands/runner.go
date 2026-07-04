@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/higress-group/issue-spec/internal/auth"
@@ -20,9 +21,10 @@ import (
 )
 
 type runnerCommandOptions struct {
-	Once   bool
-	DryRun bool
-	JSON   bool
+	Once          bool
+	DryRun        bool
+	JSON          bool
+	AsyncDispatch bool
 }
 
 type runnerDryRunResult struct {
@@ -68,7 +70,7 @@ func (a *app) runRunnerPoll(ctx context.Context, args []string) int {
 	}
 	if !opts.DryRun {
 		if !opts.JSON {
-			a.printRunnerPollStart(cfg, opts.Once)
+			a.printRunnerPollStart(cfg, opts)
 		}
 		report := a.runRunnerPreflight(ctx, cfg)
 		if !report.OK {
@@ -76,7 +78,7 @@ func (a *app) runRunnerPoll(ctx context.Context, args []string) int {
 				OK:        false,
 				Mode:      "run",
 				Once:      opts.Once,
-				Actions:   actualRunnerPollActions(cfg, opts.Once),
+				Actions:   actualRunnerPollActions(cfg, opts),
 				Config:    cfg,
 				Preflight: report,
 			}
@@ -92,6 +94,9 @@ func (a *app) runRunnerPoll(ctx context.Context, args []string) int {
 		if !opts.JSON {
 			a.printPreflightReport(report)
 			fmt.Fprintln(a.out, "polling: started")
+		}
+		if opts.AsyncDispatch {
+			return a.runRunnerPollAsync(ctx, cfg, opts, report)
 		}
 		for {
 			if err := ctx.Err(); err != nil {
@@ -169,24 +174,46 @@ func runnerPollRecoverableIntakeFailure(result runnerDryRunResult) bool {
 }
 
 func (a *app) runRunnerPollCycle(ctx context.Context, cfg commentrunner.Config, opts runnerCommandOptions, report commentrunner.PreflightReport) runnerDryRunResult {
+	return a.runRunnerPollCycleWithStore(ctx, cfg, opts, report, nil, nil, nil)
+}
+
+func (a *app) runRunnerPollCycleWithStore(ctx context.Context, cfg commentrunner.Config, opts runnerCommandOptions, report commentrunner.PreflightReport, store crstate.StateStore, async *runnerAsyncDispatcher, asyncStartupReconcile *jobs.ReconcileResult) runnerDryRunResult {
 	var reconcileResult *jobs.ReconcileResult
 	var intakeResult *intake.Result
 	var dispatchResult *jobs.Result
 	runErr := ""
-	reconcile, err := a.runRunnerReconcile(ctx, cfg)
-	if err != nil {
-		runErr = err.Error()
+	if async != nil {
+		if asyncStartupReconcile != nil {
+			reconcileResult = asyncStartupReconcile
+		} else {
+			reconcile, err := a.runRunnerAsyncReconcileWithStore(ctx, cfg, store, async.Busy())
+			if err != nil {
+				runErr = err.Error()
+			} else {
+				reconcileResult = &reconcile
+			}
+		}
 	} else {
-		reconcileResult = &reconcile
-		result, err := a.runRunnerIntake(ctx, cfg, intake.Options{})
+		reconcile, err := a.runRunnerReconcileWithStore(ctx, cfg, store)
+		if err != nil {
+			runErr = err.Error()
+		} else {
+			reconcileResult = &reconcile
+		}
+	}
+	if runErr == "" {
+		result, err := a.runRunnerIntakeWithStore(ctx, cfg, intake.Options{}, store)
 		if err != nil {
 			runErr = err.Error()
 		} else {
 			intakeResult = &result
 			if !result.OK {
 				runErr = "intake reported failure"
+			} else if async != nil {
+				dispatch := async.Trigger()
+				dispatchResult = &dispatch
 			} else {
-				dispatch, err := a.runRunnerDispatch(ctx, cfg)
+				dispatch, err := a.runRunnerDispatchWithStore(ctx, cfg, store)
 				if err != nil {
 					runErr = err.Error()
 				}
@@ -198,7 +225,7 @@ func (a *app) runRunnerPollCycle(ctx context.Context, cfg commentrunner.Config, 
 		OK:        report.OK && runErr == "",
 		Mode:      "run",
 		Once:      opts.Once,
-		Actions:   actualRunnerPollActions(cfg, opts.Once),
+		Actions:   actualRunnerPollActions(cfg, opts),
 		Config:    cfg,
 		Preflight: report,
 		Reconcile: reconcileResult,
@@ -206,6 +233,154 @@ func (a *app) runRunnerPollCycle(ctx context.Context, cfg commentrunner.Config, 
 		Dispatch:  dispatchResult,
 		Error:     runErr,
 	}
+}
+
+func (a *app) runRunnerPollAsync(ctx context.Context, cfg commentrunner.Config, opts runnerCommandOptions, report commentrunner.PreflightReport) int {
+	store, err := crstate.OpenFileStore(cfg.StatePath)
+	if err != nil {
+		result := runnerDryRunResult{
+			OK:        false,
+			Mode:      "run",
+			Once:      opts.Once,
+			Actions:   actualRunnerPollActions(cfg, opts),
+			Config:    cfg,
+			Preflight: report,
+			Error:     err.Error(),
+		}
+		if code := a.printRunnerPollResult(result, opts.JSON); code != 0 {
+			return code
+		}
+		return 1
+	}
+	defer store.Close()
+
+	startupReconcile, err := a.runRunnerReconcileWithStore(ctx, cfg, store)
+	if err != nil {
+		result := runnerDryRunResult{
+			OK:        false,
+			Mode:      "run",
+			Once:      opts.Once,
+			Actions:   actualRunnerPollActions(cfg, opts),
+			Config:    cfg,
+			Preflight: report,
+			Error:     err.Error(),
+		}
+		if code := a.printRunnerPollResult(result, opts.JSON); code != 0 {
+			return code
+		}
+		return 1
+	}
+	nextReconcile := &startupReconcile
+	async := newRunnerAsyncDispatcher(ctx, a, cfg, store)
+	defer async.Stop()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return 0
+		}
+		if !opts.JSON {
+			fmt.Fprintln(a.out, "poll cycle: running")
+		}
+		result := a.runRunnerPollCycleWithStore(ctx, cfg, opts, report, store, async, nextReconcile)
+		nextReconcile = nil
+		if code := a.printRunnerPollResult(result, opts.JSON); code != 0 {
+			return code
+		}
+		if !result.OK {
+			if ctx.Err() != nil {
+				return 0
+			}
+			if !opts.Once && runnerPollRecoverableIntakeFailure(result) {
+				if !waitForNextRunnerPoll(ctx, result.Intake) {
+					return 0
+				}
+				continue
+			}
+			return 1
+		}
+		if opts.Once {
+			return 0
+		}
+		if !waitForNextRunnerPoll(ctx, result.Intake) {
+			return 0
+		}
+	}
+}
+
+type runnerAsyncDispatcher struct {
+	app     *app
+	cfg     commentrunner.Config
+	store   crstate.StateStore
+	ctx     context.Context
+	cancel  context.CancelFunc
+	trigger chan struct{}
+	done    chan struct{}
+	mu      sync.Mutex
+	busy    bool
+}
+
+func newRunnerAsyncDispatcher(ctx context.Context, app *app, cfg commentrunner.Config, store crstate.StateStore) *runnerAsyncDispatcher {
+	childCtx, cancel := context.WithCancel(ctx)
+	d := &runnerAsyncDispatcher{
+		app:     app,
+		cfg:     cfg,
+		store:   store,
+		ctx:     childCtx,
+		cancel:  cancel,
+		trigger: make(chan struct{}, 1),
+		done:    make(chan struct{}),
+	}
+	go d.loop()
+	return d
+}
+
+func (d *runnerAsyncDispatcher) Trigger() jobs.Result {
+	if d == nil {
+		return jobs.Result{Reason: "async dispatch unavailable"}
+	}
+	select {
+	case d.trigger <- struct{}{}:
+		return jobs.Result{Reason: "async dispatch scheduled"}
+	default:
+		return jobs.Result{Reason: "async dispatch already running; trigger queued"}
+	}
+}
+
+func (d *runnerAsyncDispatcher) Stop() {
+	if d == nil {
+		return
+	}
+	d.cancel()
+	<-d.done
+}
+
+func (d *runnerAsyncDispatcher) Busy() bool {
+	if d == nil {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.busy
+}
+
+func (d *runnerAsyncDispatcher) loop() {
+	defer close(d.done)
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-d.trigger:
+			d.setBusy(true)
+			_, _ = d.app.runRunnerDispatchWithStore(d.ctx, d.cfg, d.store)
+			d.setBusy(false)
+		}
+	}
+}
+
+func (d *runnerAsyncDispatcher) setBusy(busy bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.busy = busy
 }
 
 func (a *app) printRunnerPollResult(result runnerDryRunResult, jsonOut bool) int {
@@ -294,9 +469,13 @@ func (a *app) parseRunnerOptions(args []string, includePollFlags bool) (commentr
 	opts := runnerCommandOptions{}
 	var once *bool
 	var dryRun *bool
+	var asyncDispatch *bool
+	var syncDispatch *bool
 	if includePollFlags {
 		once = fs.Bool("once", false, "run one poll cycle")
 		dryRun = fs.Bool("dry-run", false, "print planned polling and preflight actions without GitHub writes or acpx dispatch")
+		asyncDispatch = fs.Bool("async-dispatch", false, "dispatch runner jobs in a background goroutine so polling cadence is not blocked by acpx; enabled by default for continuous polling")
+		syncDispatch = fs.Bool("sync-dispatch", false, "dispatch runner jobs synchronously in the foreground; continuous polling waits for acpx")
 	}
 	if err := fs.Parse(args); err != nil {
 		return commentrunner.Config{}, opts, false
@@ -305,6 +484,21 @@ func (a *app) parseRunnerOptions(args []string, includePollFlags bool) (commentr
 	if includePollFlags {
 		opts.Once = *once
 		opts.DryRun = *dryRun
+		opts.AsyncDispatch = !opts.Once
+		if seen["sync-dispatch"] && *syncDispatch {
+			opts.AsyncDispatch = false
+		}
+		if seen["async-dispatch"] {
+			opts.AsyncDispatch = *asyncDispatch
+		}
+		if seen["sync-dispatch"] && *syncDispatch && seen["async-dispatch"] && *asyncDispatch {
+			a.errorf("--async-dispatch cannot be combined with --sync-dispatch\n")
+			return commentrunner.Config{}, opts, false
+		}
+		if opts.Once && opts.AsyncDispatch {
+			a.errorf("--async-dispatch cannot be combined with --once\n")
+			return commentrunner.Config{}, opts, false
+		}
 	}
 	opts.JSON = *jsonOut
 
@@ -432,6 +626,10 @@ func (a *app) runRunnerPreflight(ctx context.Context, cfg commentrunner.Config) 
 }
 
 func (a *app) runRunnerIntake(ctx context.Context, cfg commentrunner.Config, opts intake.Options) (intake.Result, error) {
+	return a.runRunnerIntakeWithStore(ctx, cfg, opts, nil)
+}
+
+func (a *app) runRunnerIntakeWithStore(ctx context.Context, cfg commentrunner.Config, opts intake.Options, store crstate.StateStore) (intake.Result, error) {
 	cfg = cfg.Normalized()
 	opts = runnerIntakeOptions(cfg, opts)
 	if a.runnerIntake != nil {
@@ -458,11 +656,14 @@ func (a *app) runRunnerIntake(ctx context.Context, cfg commentrunner.Config, opt
 			opts.NotificationBackend = notificationBackend
 		}
 	}
-	store, err := crstate.OpenFileStore(cfg.StatePath)
-	if err != nil {
-		return intake.Result{}, err
+	if store == nil {
+		opened, err := crstate.OpenFileStore(cfg.StatePath)
+		if err != nil {
+			return intake.Result{}, err
+		}
+		defer opened.Close()
+		store = opened
 	}
-	defer store.Close()
 	return intake.RunOnce(ctx, cfg, runnerBackend, store, opts)
 }
 
@@ -498,6 +699,10 @@ func defaultRunnerNotificationBackend(_ context.Context, cfg commentrunner.Confi
 }
 
 func (a *app) runRunnerReconcile(ctx context.Context, cfg commentrunner.Config) (jobs.ReconcileResult, error) {
+	return a.runRunnerReconcileWithStore(ctx, cfg, nil)
+}
+
+func (a *app) runRunnerReconcileWithStore(ctx context.Context, cfg commentrunner.Config, store crstate.StateStore) (jobs.ReconcileResult, error) {
 	if a.runnerReconcile != nil {
 		return a.runnerReconcile(ctx, cfg)
 	}
@@ -513,11 +718,14 @@ func (a *app) runRunnerReconcile(ctx context.Context, cfg commentrunner.Config) 
 	if !ok {
 		return jobs.ReconcileResult{}, fmt.Errorf("selected GitHub backend does not support runner status writeback")
 	}
-	store, err := crstate.OpenFileStore(cfg.StatePath)
-	if err != nil {
-		return jobs.ReconcileResult{}, err
+	if store == nil {
+		opened, err := crstate.OpenFileStore(cfg.StatePath)
+		if err != nil {
+			return jobs.ReconcileResult{}, err
+		}
+		defer opened.Close()
+		store = opened
 	}
-	defer store.Close()
 	dispatcher := jobs.Dispatcher{
 		Store: store,
 		Workspaces: workspace.Manager{
@@ -536,7 +744,47 @@ func (a *app) runRunnerReconcile(ctx context.Context, cfg commentrunner.Config) 
 	return dispatcher.Reconcile(ctx)
 }
 
+func (a *app) runRunnerWorkspaceCleanupWithStore(ctx context.Context, cfg commentrunner.Config, store crstate.StateStore) (jobs.ReconcileResult, error) {
+	if store == nil {
+		opened, err := crstate.OpenFileStore(cfg.StatePath)
+		if err != nil {
+			return jobs.ReconcileResult{}, err
+		}
+		defer opened.Close()
+		store = opened
+	}
+	dispatcher := jobs.Dispatcher{
+		Store: store,
+		Workspaces: workspace.Manager{
+			Root:      cfg.WorkspaceRoot,
+			Retention: cfg.WorkspaceRetention.Duration,
+		},
+	}
+	return dispatcher.CleanupWorkspaces(ctx)
+}
+
+func (a *app) runRunnerAsyncReconcileWithStore(ctx context.Context, cfg commentrunner.Config, store crstate.StateStore, dispatchBusy bool) (jobs.ReconcileResult, error) {
+	if dispatchBusy {
+		return a.runRunnerWorkspaceCleanupWithStore(ctx, cfg, store)
+	}
+	if a.runnerReconcile == nil {
+		return a.runRunnerReconcileWithStore(ctx, cfg, store)
+	}
+	cleanup, err := a.runRunnerWorkspaceCleanupWithStore(ctx, cfg, store)
+	if err != nil {
+		return cleanup, err
+	}
+	reconcile, err := a.runRunnerReconcileWithStore(ctx, cfg, store)
+	reconcile.WorkspaceCleanup = append(reconcile.WorkspaceCleanup, cleanup.WorkspaceCleanup...)
+	reconcile.Diagnostics = append(reconcile.Diagnostics, cleanup.Diagnostics...)
+	return reconcile, err
+}
+
 func (a *app) runRunnerDispatch(ctx context.Context, cfg commentrunner.Config) (jobs.Result, error) {
+	return a.runRunnerDispatchWithStore(ctx, cfg, nil)
+}
+
+func (a *app) runRunnerDispatchWithStore(ctx context.Context, cfg commentrunner.Config, store crstate.StateStore) (jobs.Result, error) {
 	if a.runnerDispatch != nil {
 		return a.runnerDispatch(ctx, cfg)
 	}
@@ -552,11 +800,14 @@ func (a *app) runRunnerDispatch(ctx context.Context, cfg commentrunner.Config) (
 	if !ok {
 		return jobs.Result{}, fmt.Errorf("selected GitHub backend does not support runner status writeback")
 	}
-	store, err := crstate.OpenFileStore(cfg.StatePath)
-	if err != nil {
-		return jobs.Result{}, err
+	if store == nil {
+		opened, err := crstate.OpenFileStore(cfg.StatePath)
+		if err != nil {
+			return jobs.Result{}, err
+		}
+		defer opened.Close()
+		store = opened
 	}
-	defer store.Close()
 	dispatcher := jobs.Dispatcher{
 		Store:        store,
 		Repositories: jobs.StaticRepositoryResolver{Hostname: cfg.Hostname},
@@ -605,30 +856,41 @@ func plannedRunnerPollActions(cfg commentrunner.Config, once bool) []string {
 	}
 }
 
-func actualRunnerPollActions(cfg commentrunner.Config, once bool) []string {
+func actualRunnerPollActions(cfg commentrunner.Config, opts runnerCommandOptions) []string {
 	cfg = cfg.Normalized()
 	cycle := "poll configured repositories continuously"
-	if once {
+	if opts.Once {
 		cycle = "poll configured repositories once"
 	}
 	dispatchAction := "process one cancellation or dispatch one ready job"
 	if cfg.MaxConcurrentJobs > 1 {
 		dispatchAction = fmt.Sprintf("process one cancellation or dispatch up to %d ready jobs", cfg.MaxConcurrentJobs)
 	}
+	if opts.AsyncDispatch {
+		dispatchAction += " in a background goroutine; foreground cycles keep polling without waiting for acpx"
+	}
+	reconcileAction := "reconcile in-flight jobs and clean up expired non-active workspaces before polling"
+	if opts.AsyncDispatch {
+		reconcileAction = "reconcile in-flight jobs when async dispatch is idle; while dispatch is busy, only clean up expired workspaces before polling"
+	}
 	return []string{
 		"load trusted runner config",
 		"run preflight checks",
-		"reconcile in-flight jobs and clean up expired non-active workspaces before polling",
+		reconcileAction,
 		cycle + ": " + strings.Join(cfg.Repositories, ", "),
 		dispatchAction,
 	}
 }
 
-func (a *app) printRunnerPollStart(cfg commentrunner.Config, once bool) {
+func (a *app) printRunnerPollStart(cfg commentrunner.Config, opts runnerCommandOptions) {
 	cfg = cfg.Normalized()
 	mode := "continuous"
-	if once {
+	if opts.Once {
 		mode = "once"
+	}
+	dispatchMode := "sync"
+	if opts.AsyncDispatch {
+		dispatchMode = "async"
 	}
 	fmt.Fprintln(a.out, "runner poll starting")
 	fmt.Fprintf(a.out, "repositories: %s\n", strings.Join(cfg.Repositories, ", "))
@@ -641,7 +903,7 @@ func (a *app) printRunnerPollStart(cfg commentrunner.Config, once bool) {
 	fmt.Fprintln(a.out)
 	fmt.Fprintf(a.out, "state: %s\n", cfg.StatePath)
 	fmt.Fprintf(a.out, "workspace_root: %s\n", cfg.WorkspaceRoot)
-	fmt.Fprintf(a.out, "poll_interval: %s fallback_interval: %s mode: %s\n", cfg.PollInterval.Duration, cfg.FallbackInterval.Duration, mode)
+	fmt.Fprintf(a.out, "poll_interval: %s fallback_interval: %s mode: %s dispatch: %s\n", cfg.PollInterval.Duration, cfg.FallbackInterval.Duration, mode, dispatchMode)
 	fmt.Fprintln(a.out, "preflight: running")
 }
 
