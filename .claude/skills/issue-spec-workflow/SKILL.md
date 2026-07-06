@@ -41,7 +41,6 @@ Use this skill for issue-native OpenSpec work. Active change artifacts live in G
 
 - Use issue-spec comment generate to render canonical typed comment bodies (SPEC, TASK, PROCESS, REVIEW, VERIFY) from structured JSON instead of hand-writing Markdown; comment upsert --type SPEC validates and rejects noncanonical SPEC bodies by default, with --allow-noncanonical as a write-time migration bypass only.
 - Create SPEC comments before design; each SPEC must be testable and include WHEN/THEN scenarios.
-- Do not leave active proposal/design/implement issue bodies as TBD placeholders.
 - Resolve blocking QUESTION comments before design/tasks, or explicitly record accepted assumptions.
 - Link SPEC <-> TASK and TASK <-> PROCESS with issue-spec link.
 - Each design TASK must carry an ### Execution Planning section (rendered by comment generate --type TASK): owned modules/write areas, shared touchpoints, dependency/interface assumptions, coupling class, recommended execution mode, and complexity/split guidance. comment upsert --type TASK rejects a TASK that omits it.
@@ -68,6 +67,20 @@ Use this skill for issue-native OpenSpec work. Active change artifacts live in G
 6. Dispatch review PROCESS nodes for non-trivial PRs after PR rationale exists; run review nodes in parallel only when their review scopes are independent. Route P0/P1 findings to the owner PROCESS or a dedicated repair PROCESS that follows the same serial/parallel gating.
 7. Integrate completed outputs by dependency order.
 8. Mark PROCESS nodes done only after implementation or review evidence and, for serial predecessors, ### Handoff evidence are recorded and blocking findings are resolved.
+
+## Cross-Skill Boundary
+
+The issue-spec workflow is composed of cooperating skills. Each owns a slice
+of the link matrix; a single skill never covers the full graph.
+
+Link matrix (every direction is verified end-to-end):
+- SPEC ↔ TASK        (issue-spec-propose, step 7)
+- TASK ↔ PROCESS     (issue-spec-apply, step 6)
+- PROCESS ↔ SPEC     (issue-spec-apply, step 7b-2 or equivalent)
+- PROCESS ↔ PR       (issue-spec-apply, step 8)
+
+`verify-links` after `issue-spec-apply` step 6 is the full-coverage check;
+the earlier run after propose only catches SPEC↔TASK gaps.
 
 ## Project Workflow
 

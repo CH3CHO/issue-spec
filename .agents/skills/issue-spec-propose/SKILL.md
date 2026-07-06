@@ -45,6 +45,20 @@ Use when the user asks for /issue-spec:propose, issue-spec propose, creating a c
        issue-spec issue create implement --repo higress-group/issue-spec --change <change-name> --proposal <proposal-issue-or-url> --design <design-issue-or-url> --body-file <implement.md>
 
 9. Run issue-spec verify-links and fix missing backlinks before implementation.
+   This run covers SPEC↔TASK only; after PROCESS comments are created in
+   issue-spec-apply (step 6), re-run verify-links to also catch PROCESS↔TASK gaps.
+
+## Cross-Skill Boundary
+
+Process creation, PROCESS↔TASK links, and PROCESS↔PR links live in
+`issue-spec-apply`, not here. When you finish propose (TASKs complete),
+hand off to apply before re-running `verify-links` for full coverage.
+
+Link matrix (every direction is verified):
+- SPEC ↔ TASK        (this skill, step 7)
+- TASK ↔ PROCESS     (issue-spec-apply, step 6)
+- PROCESS ↔ SPEC     (issue-spec-apply, step 7b-2 or equivalent)
+- PROCESS ↔ PR       (issue-spec-apply, step 8)
 
 ## Project Workflow
 
