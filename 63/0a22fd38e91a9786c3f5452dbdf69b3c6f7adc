@@ -1,0 +1,40 @@
+.agents/skills/issue-spec-apply/SKILL.md
+  s_214dfafe83f1cd::t_c21ad1ff13be3a 16-21
+.agents/skills/issue-spec-workflow/SKILL.md
+  s_214dfafe83f1cd::t_d5b55bed6cbb3b 77-81,83-84
+  s_214dfafe83f1cd::t_913cb1e48b2160 72-76,82,85
+.claude/skills/issue-spec-workflow/SKILL.md
+  s_214dfafe83f1cd::t_ea48b42fbb56ee 77-81,83-84
+  s_214dfafe83f1cd::t_65222b6fe54c21 72-76,82,85
+.claude/skills/issue-spec-propose/SKILL.md
+  s_214dfafe83f1cd::t_7ae299522a1514 57-61
+  s_214dfafe83f1cd::t_282dd8df519fc4 48-56
+internal/templates/skills.go
+  s_214dfafe83f1cd::t_c340114c414875 132-136,138-139
+  s_214dfafe83f1cd::t_7b4a2a0238297c 183-184,188
+  s_214dfafe83f1cd::t_6f6bdc44c5b3fe 185-187,189-191
+  s_214dfafe83f1cd::t_7abdd425f1b060 192-196
+  s_214dfafe83f1cd::t_49de9641884759 208-213
+  s_214dfafe83f1cd::t_04f5abe43421e7 126-131,137
+.claude/skills/issue-spec-apply/SKILL.md
+  s_214dfafe83f1cd::t_52ba8b72771bc7 16-21
+.agents/skills/issue-spec-propose/SKILL.md
+  s_214dfafe83f1cd::t_2f204320b2bbca 57-61
+  s_214dfafe83f1cd::t_5f677de7265094 48-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.28-trip",
+  "base_commit_sha": "630a22fd38e91a9786c3f5452dbdf69b3c6f7adc",
+  "prompts": {},
+  "sessions": {
+    "s_214dfafe83f1cd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41690947-9c68-4afd-8514-f0b2c69fcf68",
+        "model": "MiniMax-M3"
+      },
+      "human_author": null
+    }
+  }
+}
