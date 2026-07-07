@@ -1,0 +1,52 @@
+internal/auth/auth_test.go
+  s_214dfafe83f1cd::t_d731ee393f8de2 116
+  s_214dfafe83f1cd::t_0fc5094854ccbd 7-8
+  s_214dfafe83f1cd::t_b69372ea4ec8fb 581-582
+  s_214dfafe83f1cd::t_0278990aa7d2d7 555-580
+  s_214dfafe83f1cd::t_bb8664dd069eb0 235-244,248-553
+  s_214dfafe83f1cd::t_1ad86bb9fa6609 11-12
+  s_214dfafe83f1cd::t_f677e1c90eb826 129
+  s_214dfafe83f1cd::t_0272ad8a918a63 245-247
+internal/commands/auth.go
+  s_214dfafe83f1cd::t_19473443617130 15-40
+  s_214dfafe83f1cd::t_f1ed74130dc110 64,70-76,78-79,84,110-113,115-124,126-128,135
+  s_214dfafe83f1cd::t_3c30a9d5d8d20f 142,149-156,176,181,192-226
+  s_214dfafe83f1cd::t_b9cdf76d433be9 368,375-382,402,421-453
+  s_214dfafe83f1cd::t_8971701e08b60b 114,125,129-133
+  s_214dfafe83f1cd::t_c75bb1a952a9cc 336
+  s_214dfafe83f1cd::t_8f84641bb6611e 337,342-349,354
+  s_214dfafe83f1cd::t_6c657a183890b3 141
+  s_214dfafe83f1cd::t_d46921eda35040 63
+  s_214dfafe83f1cd::t_72b34ed56aec72 367
+  s_214dfafe83f1cd::t_be82f1fdcc66b8 66,77
+internal/auth/auth.go
+  s_214dfafe83f1cd::t_e69892a51ebdf1 293-296,298-301,307-326,341-361,369-371,377-425,432,442-447,452,455-460,462,469-493,502-508,527-549
+  s_214dfafe83f1cd::t_0731448e961939 327-339
+  s_214dfafe83f1cd::t_5f4462ee620104 138-154
+  s_214dfafe83f1cd::t_21819d092a6eaf 16-19,21,33-85
+  s_214dfafe83f1cd::t_868677572381ee 194
+  s_214dfafe83f1cd::t_cde3bef9fc40dc 292,297,302-306
+  s_214dfafe83f1cd::t_2b199c68a9f1a3 102
+internal/commands/auth_test.go
+  s_214dfafe83f1cd::t_050502be917c8e 15-16
+  s_214dfafe83f1cd::t_4f835059139168 654,680,697,706,713-718,720
+  s_214dfafe83f1cd::t_85548a05abdf94 598-599,603-608,610-614,616-624,626-640,642-653,655-679,681-688,690-696,698-705,707-712,719,721-722
+  s_214dfafe83f1cd::t_d11bddc74cbbe6 609,615,625,641,689,723-730,734-738
+  s_214dfafe83f1cd::t_0272ad8a918a63 731-733
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.28-trip",
+  "base_commit_sha": "4ae5ca086ade1dc9d51ec59673a2caff143e39d4",
+  "prompts": {},
+  "sessions": {
+    "s_214dfafe83f1cd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41690947-9c68-4afd-8514-f0b2c69fcf68",
+        "model": "MiniMax-M3"
+      },
+      "human_author": "CH3CHO <ch3cho@qq.com>"
+    }
+  }
+}
