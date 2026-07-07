@@ -1,0 +1,36 @@
+internal/backend/gitlab/glab_test.go
+  s_214dfafe83f1cd::t_0b2ee5c6eb6538 1-208
+  s_214dfafe83f1cd::t_638b32208f7ee0 209
+internal/backend/gitlab/backend.go
+  s_214dfafe83f1cd::t_559eb0550207be 618-623,635
+  s_214dfafe83f1cd::t_638b32208f7ee0 155-157,327-328,678
+  s_214dfafe83f1cd::t_09093b1dc80753 406-410,412-423,429,431-447,449,456-458
+  s_214dfafe83f1cd::t_8833865a97ac63 1-154,158-326,329-405,411,424-428,430,448,450-455,459-617,624-634,636-677
+internal/backend/gitlab/glab.go
+  s_214dfafe83f1cd::t_ad032dded8340b 1-199
+  s_214dfafe83f1cd::t_638b32208f7ee0 200
+internal/backend/gitlab/backend_test.go
+  s_214dfafe83f1cd::t_17d6bd70048238 357,359-364
+  s_214dfafe83f1cd::t_88ae710a3a7b9d 555
+  s_214dfafe83f1cd::t_dce9b533eb6eba 209,215
+  s_214dfafe83f1cd::t_638b32208f7ee0 692
+  s_214dfafe83f1cd::t_c37fa692ceca22 188
+  s_214dfafe83f1cd::t_9326de926b6ffd 522-527
+  s_214dfafe83f1cd::t_fff47109df4709 1-187,189-208,210-214,216-356,358,365-521,528-554,556-691
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.28-trip",
+  "base_commit_sha": "0653fb9931094ab552671a0d1725ce0fb1d54ce7",
+  "prompts": {},
+  "sessions": {
+    "s_214dfafe83f1cd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41690947-9c68-4afd-8514-f0b2c69fcf68",
+        "model": "MiniMax-M3"
+      },
+      "human_author": "CH3CHO <ch3cho@qq.com>"
+    }
+  }
+}
