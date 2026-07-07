@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	keyring "github.com/zalando/go-keyring"
+
 	"github.com/higress-group/issue-spec/internal/auth"
 	"github.com/higress-group/issue-spec/internal/github"
 	"github.com/higress-group/issue-spec/internal/model"
@@ -593,7 +595,147 @@ func clearCommandAuthEnv(t *testing.T) {
 	t.Setenv("ISSUE_SPEC_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GITLAB_TOKEN", "")
+	t.Setenv("GL_TOKEN", "")
 	t.Setenv("ISSUE_SPEC_CONFIG_DIR", t.TempDir())
+}
+
+// -----------------------------------------------------------------------------
+// PROCESS-004 command-level --platform tests
+// -----------------------------------------------------------------------------
+
+func TestAuthLoginPlatformGitLab(t *testing.T) {
+	clearCommandAuthEnv(t)
+	swapAuthKeyringForTest(t, emptyKeyring{})
+	const glToken = "glpat-stdin-secret"
+
+	var out, errOut bytes.Buffer
+	app := newApp(strings.NewReader(glToken), &out, &errOut)
+
+	code := app.runAuthLogin(context.Background(), []string{"--platform", "gitlab", "--hostname", "gitlab.com", "--with-token", "--insecure-storage"})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr=%q", code, errOut.String())
+	}
+
+	// Result must NOT call the GitHub client; this verifies the platform
+	// flag routed the login through the GitLab branch.
+	if strings.Contains(out.String(), "octocat") || strings.Contains(errOut.String(), "octocat") {
+		t.Fatalf("GitHub login path executed for gitlab platform: stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+	if !strings.Contains(out.String(), "gitlab") || !strings.Contains(out.String(), "credentials.json:gitlab") {
+		t.Fatalf("login output missing gitlab markers: %s", out.String())
+	}
+
+	// Round-trip: the persisted GitLab token must come back via auth.ResolveToken.
+	resolved, err := auth.ResolveToken(context.Background(), auth.PlatformGitLab, "gitlab.com")
+	if err != nil {
+		t.Fatalf("gitlab token not persisted: %v", err)
+	}
+	if resolved.Value != glToken || resolved.Source != "credentials.json:gitlab" {
+		t.Fatalf("gitlab token round-trip = %+v", resolved)
+	}
+}
+
+func TestAuthLogoutPlatformGitlabDoesNotAffectGitHub(t *testing.T) {
+	clearCommandAuthEnv(t)
+	swapAuthKeyringForTest(t, emptyKeyring{})
+	const ghToken = "ghp-stored-secret"
+	const glToken = "glpat-stored-secret"
+
+	if _, err := auth.StoreToken(context.Background(), auth.PlatformGitHub, "github.com", ghToken, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := auth.StoreToken(context.Background(), auth.PlatformGitLab, "gitlab.com", glToken, true); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	app := newApp(strings.NewReader(""), &out, &errOut)
+	code := app.runAuthLogout(context.Background(), []string{"--platform", "gitlab", "--json"})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr=%q", code, errOut.String())
+	}
+
+	// GitHub must still resolve.
+	ghResolved, err := auth.ResolveToken(context.Background(), auth.PlatformGitHub, "github.com")
+	if err != nil {
+		t.Fatalf("github token removed by gitlab logout: %v", err)
+	}
+	if ghResolved.Value != ghToken {
+		t.Fatalf("github token = %q, want %q", ghResolved.Value, ghToken)
+	}
+
+	// GitLab must be gone.
+	if _, err := auth.ResolveToken(context.Background(), auth.PlatformGitLab, "gitlab.com"); !errors.Is(err, auth.ErrNoToken) {
+		t.Fatalf("gitlab token still resolvable after logout: %v", err)
+	}
+
+	// JSON output must reflect gitlab-only deletion.
+	var got struct {
+		OK       bool   `json:"ok"`
+		Platform string `json:"platform"`
+		Host     string `json:"host"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("logout output not JSON: stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+	if !got.OK || got.Platform != "gitlab" || got.Host != "gitlab.com" {
+		t.Fatalf("unexpected logout JSON: %+v", got)
+	}
+}
+
+func TestAuthStatusPlatformGitlabReadsGitlabSection(t *testing.T) {
+	clearCommandAuthEnv(t)
+	swapAuthKeyringForTest(t, emptyKeyring{})
+	const glToken = "glpat-credentials-secret"
+	if _, err := auth.StoreToken(context.Background(), auth.PlatformGitLab, "gitlab.com", glToken, true); err != nil {
+		t.Fatal(err)
+	}
+
+	var out, errOut bytes.Buffer
+	app := newApp(strings.NewReader(""), &out, &errOut)
+	code := app.runAuthStatus(context.Background(), []string{"--platform", "gitlab", "--json", "--include-token"})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr=%q", code, errOut.String())
+	}
+
+	var got struct {
+		OK       bool       `json:"ok"`
+		Platform string     `json:"platform"`
+		Auth     auth.Token `json:"auth"`
+		Token    string     `json:"token"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got.OK || got.Platform != "gitlab" {
+		t.Fatalf("unexpected status JSON: %+v", got)
+	}
+	// Token.Value is json:"-" by design; --include-token promotes it to
+	// the top-level "token" field. Auth.Source / Auth.Host prove we
+	// actually read from the per-platform GitLab section.
+	if got.Token != glToken {
+		t.Fatalf("top-level token = %q, want %q", got.Token, glToken)
+	}
+	if got.Auth.Host != "gitlab.com" || got.Auth.Source != "credentials.json:gitlab" {
+		t.Fatalf("unexpected auth payload: %+v", got.Auth)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Keyring isolation helpers shared across commands-level auth tests
+// -----------------------------------------------------------------------------
+
+type emptyKeyring struct{}
+
+func (emptyKeyring) Get(_, _ string) (string, error) { return "", errors.New("no keyring entry") }
+func (emptyKeyring) Set(_, _, _ string) error        { return nil }
+func (emptyKeyring) Delete(_, _ string) error        { return keyring.ErrNotFound }
+
+func swapAuthKeyringForTest(t *testing.T, backend auth.KeyringBackend) {
+	t.Helper()
+	restore := auth.SetKeyringBackend(backend)
+	t.Cleanup(restore)
 }
 
 func installFakeGH(t *testing.T, script string) {
